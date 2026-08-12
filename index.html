@@ -887,8 +887,8 @@ const FINANCIERAS = ['Cash24/7','RENTINGCEL'];
 // 1) Crea un proyecto gratis en https://supabase.com
 // 2) En Settings > API copia "Project URL" y "anon public key"
 // 3) Pégalos abajo reemplazando los dos textos entre comillas
-const SUPABASE_URL = "https://snyirjlwwmdzfqscbtyj.supabase.co";
-const SUPABASE_ANON_KEY = "sb_publishable__nCb3JC5iBZK_CPvQehTYA_9fhRWBhf";
+const SUPABASE_URL = "https://ymhygvcayjdqqswvdgjo.supabase.co";
+const SUPABASE_ANON_KEY = "sb_publishable_7x52wRpwUPQxiP4XvRHpJw_UQ5Wyciy";
 let supabaseClient = null;
 let cloudDisponible = false;
 try {
@@ -898,74 +898,123 @@ try {
   }
 } catch(e) { console.error('Supabase no configurado todavía:', e); }
 
-// Combina por "id" una lista remota (ya guardada en la nube) con la lista local:
-// conserva los registros remotos que la sesión local no tiene (creados por OTRO
-// dispositivo/usuario mientras esta sesión estaba abierta) y usa la versión local
-// para cualquier id que exista en ambos lados (es la edición más reciente de ESTA sesión).
-function fusionarPorId(remotos, locales){
-  if(!Array.isArray(remotos)) return Array.isArray(locales)?locales:[];
-  if(!Array.isArray(locales)) return remotos;
-  const mapa=new Map();
-  remotos.forEach(r=>{ if(r && r.id!==undefined) mapa.set(r.id,r); });
-  locales.forEach(l=>{ if(l && l.id!==undefined) mapa.set(l.id,l); });
-  return Array.from(mapa.values());
+// ============================================================
+// SINCRONIZACIÓN CON TABLAS RELACIONALES (columnas reales en Supabase)
+// ------------------------------------------------------------
+// Cada colección de DB (productos, ventas, clientes, etc.) vive en su
+// propia tabla con columnas reales, en vez de un único JSON. saveState()
+// sigue siendo "guarda todo el estado actual", pero por debajo hace un
+// upsert por tabla + borra en la nube lo que ya no exista localmente
+// (ej. un producto eliminado), en vez de sobrescribir un blob completo.
+// Esto además resuelve mejor el uso simultáneo multi-dispositivo: cada
+// fila se sincroniza por su propio id, no por un objeto gigante.
+// ============================================================
+
+// Sincroniza una tabla completa contra un arreglo local: upsert de todas
+// las filas locales + borra en la nube las que ya no existan localmente.
+async function syncTablaCompleta(tabla, filas, idCol){
+  if(filas.length){
+    const { error } = await supabaseClient.from(tabla).upsert(filas, { onConflict: idCol });
+    if(error) throw error;
+  }
+  const idsLocales = new Set(filas.map(f=>f[idCol]));
+  const { data: remotos, error: errSel } = await supabaseClient.from(tabla).select(idCol);
+  if(errSel) throw errSel;
+  const aBorrar = (remotos||[]).map(r=>r[idCol]).filter(id=>!idsLocales.has(id));
+  if(aBorrar.length){
+    const { error: errDel } = await supabaseClient.from(tabla).delete().in(idCol, aBorrar);
+    if(errDel) throw errDel;
+  }
 }
 
-// Guarda TODO el estado actual (productos, ventas, clientes, movimientos) en la nube
+// Guarda TODO el estado actual (productos, ventas, clientes, movimientos) en la nube,
+// repartido en sus tablas reales.
 let guardando = false, guardarPendiente = false;
 async function saveState(){
   if(!cloudDisponible) return; // sin configurar aún: sigue funcionando solo en este navegador
   if(guardando){ guardarPendiente = true; return; }
   guardando = true;
   try{
-    // IMPORTANTE — protección multi-dispositivo/multi-usuario:
-    // Antes de sobrescribir la nube, se trae la última versión guardada (puede venir
-    // de otro celular/tablet/PC conectado al mismo tiempo con otro usuario) y se
-    // fusionan por ID las listas del negocio, para no perder ventas, gastos, cierres
-    // o movimientos que otra sesión haya registrado mientras esta estaba abierta.
-    try{
-      const { data:remotoData } = await supabaseClient.from('app_state').select('data').eq('id',1).single();
-      const remoto = remotoData ? remotoData.data : null;
-      if(remoto){
-        DB.ventas = fusionarPorId(remoto.ventas, DB.ventas);
-        DB.movimientos = fusionarPorId(remoto.movimientos, DB.movimientos);
-        DB.gastos = fusionarPorId(remoto.gastos, DB.gastos);
-        DB.cierres = fusionarPorId(remoto.cierres, DB.cierres);
-        DB.cuentasPorCobrar = fusionarPorId(remoto.cuentasPorCobrar, DB.cuentasPorCobrar);
-        DB.clientes = fusionarPorId(remoto.clientes, DB.clientes);
-        DB.productos = fusionarPorId(remoto.productos, DB.productos);
-        DB.categorias = Array.from(new Set([...(remoto.categorias||[]), ...DB.categorias]));
-        DB.facturaCounter = Math.max(DB.facturaCounter||0, remoto.facturaCounter||0);
-      }
-    }catch(e){ /* si la lectura previa falla, se continúa igual con el guardado normal */ }
+    const filasVentas = DB.ventas.map(v=>({
+      id:v.id, fecha:v.fecha, hora:v.hora, cliente_nombre:v.cliente, cliente_cedula:v.cedula,
+      cliente_telefono:v.telefono, vendedor:v.vendedor, notas:v.notas, total:v.total
+    }));
+    const filasItems = [];
+    const filasPagos = [];
+    DB.ventas.forEach(v=>{
+      (v.items||[]).forEach((it,i)=>{
+        filasItems.push({ id:v.id+'-i'+i, venta_id:v.id, producto_id:(it.prodId && DB.productos.some(p=>p.id===it.prodId)) ? it.prodId : null, nombre:it.nombre, imei:it.imei||null, precio:it.precio, costo:it.costo, qty:it.qty, subtotal:it.subtotal });
+      });
+      (v.pagos||[]).forEach((p,i)=>{
+        filasPagos.push({ id:v.id+'-p'+i, venta_id:v.id, metodo:p.metodo, monto:p.monto, financiera:p.financiera||null });
+      });
+    });
 
-    const payload = { productos:DB.productos, ventas:DB.ventas, clientes:DB.clientes, movimientos:DB.movimientos, cuentasPorCobrar:DB.cuentasPorCobrar, categorias:DB.categorias, gastos:DB.gastos, cierres:DB.cierres, permisosVendedor:DB.permisosVendedor, facturaCounter:DB.facturaCounter };
-    const { error } = await supabaseClient.from('app_state').upsert({ id:1, data:payload, updated_at:new Date().toISOString() });
-    if(error){ console.error('Error guardando en la nube:', error); toast('⚠️ No se pudo guardar en la nube',true); }
-  } catch(e){ console.error('Error guardando en la nube:', e); }
+    // Primero categorías, clientes y productos (referenciados por FK de ventas/movimientos).
+    await syncTablaCompleta('categorias', DB.categorias.map(nombre=>({nombre})), 'nombre');
+    await syncTablaCompleta('clientes', DB.clientes.map(c=>({id:c.id, nombre:c.nombre, cedula:c.cedula||null, telefono:c.telefono||null, email:c.email||null, direccion:c.dir||null})), 'id');
+    await syncTablaCompleta('productos', DB.productos.map(p=>({id:p.id, codigo:p.codigo||null, nombre:p.nombre, categoria:p.cat||null, precio:p.precio, costo:p.costo, stock:p.stock, stock_minimo:p.min||0, descripcion:p.desc||null})), 'id');
+    // Luego ventas (cabecera) y sus hijos (items/pagos), que dependen de ventas y productos.
+    await syncTablaCompleta('ventas', filasVentas, 'id');
+    await syncTablaCompleta('venta_items', filasItems, 'id');
+    await syncTablaCompleta('venta_pagos', filasPagos, 'id');
+    // El resto de tablas, sin dependencias entre sí.
+    await Promise.all([
+      syncTablaCompleta('movimientos', DB.movimientos.map(m=>({id:m.id, fecha:m.fecha, hora:m.hora, producto_id:(m.prodId && DB.productos.some(p=>p.id===m.prodId)) ? m.prodId : null, producto_nombre:m.producto, tipo:m.tipo, cantidad:m.cantidad, referencia:m.ref||null, usuario:m.user||null})), 'id'),
+      syncTablaCompleta('cuentas_por_cobrar', DB.cuentasPorCobrar.map(c=>({id:c.id, venta_id:c.ventaId||null, cliente_nombre:c.cliente, financiera:c.financiera||null, monto:c.monto, fecha_venta:c.fechaVenta||null, estado:c.estado, fecha_cobro:c.fechaCobro||null})), 'id'),
+      syncTablaCompleta('gastos', DB.gastos.map(g=>({id:g.id, descripcion:g.descripcion, monto:g.monto, fecha:g.fecha, hora:g.hora})), 'id'),
+      syncTablaCompleta('cierres', DB.cierres.map(c=>({id:c.id, fecha:c.fecha, cerrado_en:c.cerradoEn||null, tipo:c.tipo, efectivo:c.efectivo||0, transferencia:c.transferencia||0, tarjeta:c.tarjeta||0, credito:c.credito||0, gastos:c.gastos||0, cobros_cartera:c.cobrosCartera||0, neto_caja:c.netoCaja||0, caja_principal:c.cajaPrincipal||0, ventas_count:c.ventasCount||0, total_ventas:c.totalVentas||0})), 'id'),
+      syncTablaCompleta('permisos_vendedor', Object.keys({...PERMISOS_DEFAULT_VENDEDOR,...DB.permisosVendedor}).map(clave=>({clave, activo: !!DB.permisosVendedor[clave]})), 'clave'),
+      supabaseClient.from('config').update({ factura_counter: DB.facturaCounter }).eq('id',1),
+    ]);
+  } catch(e){ console.error('Error guardando en la nube:', e); toast('⚠️ No se pudo guardar en la nube',true); }
   guardando = false;
   if(guardarPendiente){ guardarPendiente = false; saveState(); }
 }
 
-// Carga el estado guardado en la nube; si no hay nada aún, siembra datos demo y los guarda
+// Carga el estado guardado en la nube (desde las tablas reales); si no hay nada aún, siembra datos demo y los guarda
 async function loadState(){
   if(!cloudDisponible){ seedData(); return; }
   try{
-    const { data, error } = await supabaseClient.from('app_state').select('data').eq('id',1).single();
-    if(error) throw error;
-    if(data && data.data && Array.isArray(data.data.productos) && data.data.productos.length){
-      DB.productos = data.data.productos;
-      DB.ventas = data.data.ventas || [];
-      DB.clientes = data.data.clientes || [];
-      DB.movimientos = data.data.movimientos || [];
-      DB.cuentasPorCobrar = data.data.cuentasPorCobrar || [];
-      DB.categorias = data.data.categorias || [];
-      DB.gastos = data.data.gastos || [];
-      DB.cierres = data.data.cierres || [];
-      // Combina con los valores por defecto para que las claves de permisos nuevas
-      // (agregadas en futuras actualizaciones) siempre tengan un valor definido.
-      DB.permisosVendedor = {...PERMISOS_DEFAULT_VENDEDOR, ...(data.data.permisosVendedor||{})};
-      DB.facturaCounter = data.data.facturaCounter || DB.facturaCounter;
+    const [prod, cli, cat, vts, vit, vpg, mov, cxc, gas, cie, perm, cfg] = await Promise.all([
+      supabaseClient.from('productos').select('*'),
+      supabaseClient.from('clientes').select('*'),
+      supabaseClient.from('categorias').select('nombre').order('id'),
+      supabaseClient.from('ventas').select('*').order('fecha').order('hora'),
+      supabaseClient.from('venta_items').select('*'),
+      supabaseClient.from('venta_pagos').select('*'),
+      supabaseClient.from('movimientos').select('*'),
+      supabaseClient.from('cuentas_por_cobrar').select('*'),
+      supabaseClient.from('gastos').select('*'),
+      supabaseClient.from('cierres').select('*'),
+      supabaseClient.from('permisos_vendedor').select('*'),
+      supabaseClient.from('config').select('*').eq('id',1).single(),
+    ]);
+    [prod,cli,cat,vts,vit,vpg,mov,cxc,gas,cie,perm,cfg].forEach(r=>{ if(r.error) throw r.error; });
+
+    if(prod.data && prod.data.length){
+      DB.productos = prod.data.map(p=>({ id:p.id, codigo:p.codigo, nombre:p.nombre, cat:p.categoria, precio:Number(p.precio), costo:Number(p.costo), stock:p.stock, min:p.stock_minimo, desc:p.descripcion }));
+      DB.clientes = (cli.data||[]).map(c=>({ id:c.id, nombre:c.nombre, cedula:c.cedula, telefono:c.telefono, email:c.email, dir:c.direccion }));
+      DB.categorias = (cat.data||[]).map(c=>c.nombre);
+
+      const itemsPorVenta = {}, pagosPorVenta = {};
+      (vit.data||[]).forEach(i=>{ (itemsPorVenta[i.venta_id]=itemsPorVenta[i.venta_id]||[]).push({ prodId:i.producto_id, nombre:i.nombre, imei:i.imei, precio:Number(i.precio), costo:Number(i.costo), qty:i.qty, subtotal:Number(i.subtotal) }); });
+      (vpg.data||[]).forEach(p=>{ (pagosPorVenta[p.venta_id]=pagosPorVenta[p.venta_id]||[]).push({ metodo:p.metodo, monto:Number(p.monto), financiera:p.financiera }); });
+      DB.ventas = (vts.data||[]).map(v=>{
+        const pagos = pagosPorVenta[v.id]||[];
+        const pago = pagos.map(p=>p.metodo+(p.financiera?` (${p.financiera})`:'')).join(' + ');
+        return { id:v.id, fecha:v.fecha, hora:v.hora, cliente:v.cliente_nombre, cedula:v.cliente_cedula, telefono:v.cliente_telefono, pago, pagos, vendedor:v.vendedor, notas:v.notas, items:itemsPorVenta[v.id]||[], total:Number(v.total) };
+      });
+
+      DB.movimientos = (mov.data||[]).map(m=>({ id:m.id, fecha:m.fecha, hora:m.hora, producto:m.producto_nombre, tipo:m.tipo, cantidad:m.cantidad, ref:m.referencia, user:m.usuario, prodId:m.producto_id }));
+      DB.cuentasPorCobrar = (cxc.data||[]).map(c=>({ id:c.id, ventaId:c.venta_id, cliente:c.cliente_nombre, financiera:c.financiera, monto:Number(c.monto), fechaVenta:c.fecha_venta, estado:c.estado, fechaCobro:c.fecha_cobro }));
+      DB.gastos = (gas.data||[]).map(g=>({ id:g.id, descripcion:g.descripcion, monto:Number(g.monto), fecha:g.fecha, hora:g.hora }));
+      DB.cierres = (cie.data||[]).map(c=>({ id:c.id, fecha:c.fecha, cerradoEn:c.cerrado_en, tipo:c.tipo, efectivo:Number(c.efectivo), transferencia:Number(c.transferencia), tarjeta:Number(c.tarjeta), credito:Number(c.credito), gastos:Number(c.gastos), cobrosCartera:Number(c.cobros_cartera), netoCaja:Number(c.neto_caja), cajaPrincipal:Number(c.caja_principal), ventasCount:c.ventas_count, totalVentas:Number(c.total_ventas) }));
+
+      const permisosObj = {};
+      (perm.data||[]).forEach(p=>{ permisosObj[p.clave] = p.activo; });
+      DB.permisosVendedor = {...PERMISOS_DEFAULT_VENDEDOR, ...permisosObj};
+      DB.facturaCounter = (cfg.data && cfg.data.factura_counter) || DB.facturaCounter;
     } else {
       seedData();
       await saveState();
@@ -1155,7 +1204,7 @@ function confirmarEliminarVenta(){
     if(p){p.stock+=item.qty;}
     // Registrar movimiento de reversión
     const now=new Date();
-    DB.movimientos.push({id:'M'+Date.now()+'-'+Math.random().toString(36).slice(2,7),fecha:now.toISOString().split('T')[0],hora:now.toTimeString().slice(0,5),producto:item.nombre,tipo:'Anulación de venta',cantidad:item.qty,ref:'Eliminado: '+v.id,user:'Admin'});
+    DB.movimientos.push({id:'M'+Date.now()+'-'+Math.random().toString(36).slice(2,7),fecha:now.toISOString().split('T')[0],hora:now.toTimeString().slice(0,5),producto:item.nombre,prodId:item.prodId,tipo:'Anulación de venta',cantidad:item.qty,ref:'Eliminado: '+v.id,user:'Admin'});
   });
   DB.ventas.splice(idx,1);
   // Eliminar cuentas por cobrar asociadas a esta venta
@@ -1284,7 +1333,7 @@ function guardarIngreso(){
   const p=DB.productos.find(x=>x.id===pid);
   if(tipo.includes('negativo')){p.stock=Math.max(0,p.stock-qty);}else{p.stock+=qty;}
   const now=new Date();
-  DB.movimientos.push({id:'M'+Date.now()+'-'+Math.random().toString(36).slice(2,7),fecha:now.toISOString().split('T')[0],hora:now.toTimeString().slice(0,5),producto:p.nombre,tipo,cantidad:qty,ref:ref||'-',user:'Admin'});
+  DB.movimientos.push({id:'M'+Date.now()+'-'+Math.random().toString(36).slice(2,7),fecha:now.toISOString().split('T')[0],hora:now.toTimeString().slice(0,5),producto:p.nombre,prodId:p.id,tipo,cantidad:qty,ref:ref||'-',user:'Admin'});
   cerrarModal('modal-ingreso');renderInventario();refreshSelectores();
   toast(`📥 ${tipo}: ${qty} uds de ${p.nombre}`);
   saveState();
@@ -1505,7 +1554,7 @@ function finalizarVenta(){
   carrito.forEach(item=>{
     const p=DB.productos.find(x=>x.id===item.prodId);
     if(p)p.stock=Math.max(0,p.stock-item.qty);
-    DB.movimientos.push({id:'M'+Date.now()+'-'+Math.random().toString(36).slice(2,7)+'-'+item.prodId,fecha:venta.fecha,hora:venta.hora,producto:item.nombre,tipo:'Venta',cantidad:item.qty,ref:venta.id,user:'Admin'});
+    DB.movimientos.push({id:'M'+Date.now()+'-'+Math.random().toString(36).slice(2,7)+'-'+item.prodId,fecha:venta.fecha,hora:venta.hora,producto:item.nombre,prodId:item.prodId,tipo:'Venta',cantidad:item.qty,ref:venta.id,user:'Admin'});
   });
   if(cliente!=='Consumidor Final'&&!DB.clientes.find(c=>c.nombre===cliente))
     DB.clientes.push({id:'C'+Date.now(),nombre:cliente,cedula,telefono,email:'',dir:''});
@@ -2124,10 +2173,33 @@ function updateClock(){
 // (Ver nota importante de seguridad en el mensaje del chat: esto sube mucho el
 // nivel de protección frente a "ver código fuente", pero al ser una app 100%
 // en el navegador, no sustituye una autenticación real en un servidor.)
-const USERS = {
+// Los usuarios ahora viven en la tabla `usuarios` (columnas reales) en vez de
+// hardcodeados aquí. Se guarda una reserva local con los mismos valores por si
+// la nube no responde (ej. sin internet), para que el login nunca quede roto.
+const USUARIOS_FALLBACK = {
   'laofictg':  { hash: 'c1487af1a4ebb5f88fd6a5aa4a1315112369b98cd532c2b90f8c5a08f99c067b', role: 'admin',    label: 'Administrador' },
   'vendedor1': { hash: 'c7c7c392e92774ca08a39aefd22efadc9b9019927e8fe3ce38d47332f4fa1231', role: 'vendedor', label: 'Vendedor' }
 };
+let USUARIOS_CACHE = null;
+async function getUsuarios(){
+  if(USUARIOS_CACHE) return USUARIOS_CACHE;
+  if(!cloudDisponible){ USUARIOS_CACHE = USUARIOS_FALLBACK; return USUARIOS_CACHE; }
+  try{
+    const { data, error } = await supabaseClient.from('usuarios').select('*').eq('activo', true);
+    if(error) throw error;
+    if(data && data.length){
+      const obj = {};
+      data.forEach(u=>{ obj[u.username] = { hash: u.hash, role: u.role, label: u.label }; });
+      USUARIOS_CACHE = obj;
+    } else {
+      USUARIOS_CACHE = USUARIOS_FALLBACK;
+    }
+  } catch(e){
+    console.error('No se pudo leer usuarios de la nube, usando valores locales:', e);
+    USUARIOS_CACHE = USUARIOS_FALLBACK;
+  }
+  return USUARIOS_CACHE;
+}
 async function sha256Hex(texto){
   const buf = new TextEncoder().encode(texto);
   const hashBuf = await crypto.subtle.digest('SHA-256', buf);
@@ -2233,6 +2305,7 @@ async function attemptLogin(){
   const u = document.getElementById('login-user').value.trim();
   const p = document.getElementById('login-pass').value;
   const err = document.getElementById('login-error');
+  const USERS = await getUsuarios();
   const usuario = USERS[u];
   const hashIngresado = usuario ? await sha256Hex(p) : null;
   if(usuario && hashIngresado === usuario.hash){
@@ -2265,18 +2338,22 @@ function logout(){
 });
 
 // Mantiene la sesión activa al refrescar o actualizar la página
-try{
-  const sesionGuardada = localStorage.getItem('ksm_session');
-  const usuarioGuardado = USERS[sesionGuardada];
-  if(usuarioGuardado){
-    document.getElementById('login-screen').style.display = 'none';
-    document.getElementById('app-root').style.display = 'flex';
-    currentRole = usuarioGuardado.role;
-    document.getElementById('user-badge').textContent = (usuarioGuardado.role==='admin'?'👑 ':'🛒 ') + sesionGuardada;
-    if(!appStarted){ appStarted = true; init(); }
-    aplicarPermisosRol();
-  }
-}catch(e){}
+(async function restaurarSesion(){
+  try{
+    const sesionGuardada = localStorage.getItem('ksm_session');
+    if(!sesionGuardada) return;
+    const USERS = await getUsuarios();
+    const usuarioGuardado = USERS[sesionGuardada];
+    if(usuarioGuardado){
+      document.getElementById('login-screen').style.display = 'none';
+      document.getElementById('app-root').style.display = 'flex';
+      currentRole = usuarioGuardado.role;
+      document.getElementById('user-badge').textContent = (usuarioGuardado.role==='admin'?'👑 ':'🛒 ') + sesionGuardada;
+      if(!appStarted){ appStarted = true; init(); }
+      aplicarPermisosRol();
+    }
+  }catch(e){}
+})();
 
 // Reusa el mismo logo (base64) ya cargado en el sidebar, sin duplicarlo
 document.getElementById('login-logo').src = document.querySelector('.logo-img').src;
