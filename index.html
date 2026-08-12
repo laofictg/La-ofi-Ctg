@@ -934,6 +934,11 @@ async function saveState(){
   if(!cloudDisponible) return; // sin configurar aún: sigue funcionando solo en este navegador
   if(guardando){ guardarPendiente = true; return; }
   guardando = true;
+  const fallos = [];
+  // Ejecuta una sincronización sin dejar que un error bloquee las demás tablas.
+  async function intentar(nombre, promesa){
+    try{ await promesa; } catch(e){ console.error(`Error guardando "${nombre}":`, e); fallos.push(nombre); }
+  }
   try{
     const filasVentas = DB.ventas.map(v=>({
       id:v.id, fecha:v.fecha, hora:v.hora, cliente_nombre:v.cliente, cliente_cedula:v.cedula,
@@ -951,22 +956,24 @@ async function saveState(){
     });
 
     // Primero categorías, clientes y productos (referenciados por FK de ventas/movimientos).
-    await syncTablaCompleta('categorias', DB.categorias.map(nombre=>({nombre})), 'nombre');
-    await syncTablaCompleta('clientes', DB.clientes.map(c=>({id:c.id, nombre:c.nombre, cedula:c.cedula||null, telefono:c.telefono||null, email:c.email||null, direccion:c.dir||null})), 'id');
-    await syncTablaCompleta('productos', DB.productos.map(p=>({id:p.id, codigo:p.codigo||null, nombre:p.nombre, categoria:p.cat||null, precio:p.precio, costo:p.costo, stock:p.stock, stock_minimo:p.min||0, descripcion:p.desc||null})), 'id');
-    // Luego ventas (cabecera) y sus hijos (items/pagos), que dependen de ventas y productos.
-    await syncTablaCompleta('ventas', filasVentas, 'id');
-    await syncTablaCompleta('venta_items', filasItems, 'id');
-    await syncTablaCompleta('venta_pagos', filasPagos, 'id');
-    // El resto de tablas, sin dependencias entre sí.
+    // Si productos falla, ventas/items podrían fallar también por depender del FK — es inevitable,
+    // pero ya no bloquea a permisos, cierres, gastos, etc. que no tienen relación con eso.
+    await intentar('categorias', syncTablaCompleta('categorias', DB.categorias.map(nombre=>({nombre})), 'nombre'));
+    await intentar('clientes', syncTablaCompleta('clientes', DB.clientes.map(c=>({id:c.id, nombre:c.nombre, cedula:c.cedula||null, telefono:c.telefono||null, email:c.email||null, direccion:c.dir||null})), 'id'));
+    await intentar('productos', syncTablaCompleta('productos', DB.productos.map(p=>({id:p.id, codigo:p.codigo||null, nombre:p.nombre, categoria:p.cat||null, precio:p.precio, costo:p.costo, stock:p.stock, stock_minimo:p.min||0, descripcion:p.desc||null})), 'id'));
+    await intentar('ventas', syncTablaCompleta('ventas', filasVentas, 'id'));
+    await intentar('venta_items', syncTablaCompleta('venta_items', filasItems, 'id'));
+    await intentar('venta_pagos', syncTablaCompleta('venta_pagos', filasPagos, 'id'));
+    // El resto de tablas, sin dependencias entre sí ni con lo anterior — cada una vive o muere sola.
     await Promise.all([
-      syncTablaCompleta('movimientos', DB.movimientos.map(m=>({id:m.id, fecha:m.fecha, hora:m.hora, producto_id:(m.prodId && DB.productos.some(p=>p.id===m.prodId)) ? m.prodId : null, producto_nombre:m.producto, tipo:m.tipo, cantidad:m.cantidad, referencia:m.ref||null, usuario:m.user||null})), 'id'),
-      syncTablaCompleta('cuentas_por_cobrar', DB.cuentasPorCobrar.map(c=>({id:c.id, venta_id:c.ventaId||null, cliente_nombre:c.cliente, financiera:c.financiera||null, monto:c.monto, fecha_venta:c.fechaVenta||null, estado:c.estado, fecha_cobro:c.fechaCobro||null})), 'id'),
-      syncTablaCompleta('gastos', DB.gastos.map(g=>({id:g.id, descripcion:g.descripcion, monto:g.monto, fecha:g.fecha, hora:g.hora})), 'id'),
-      syncTablaCompleta('cierres', DB.cierres.map(c=>({id:c.id, fecha:c.fecha, cerrado_en:c.cerradoEn||null, tipo:c.tipo, efectivo:c.efectivo||0, transferencia:c.transferencia||0, tarjeta:c.tarjeta||0, credito:c.credito||0, gastos:c.gastos||0, cobros_cartera:c.cobrosCartera||0, neto_caja:c.netoCaja||0, caja_principal:c.cajaPrincipal||0, ventas_count:c.ventasCount||0, total_ventas:c.totalVentas||0})), 'id'),
-      syncTablaCompleta('permisos_vendedor', Object.keys({...PERMISOS_DEFAULT_VENDEDOR,...DB.permisosVendedor}).map(clave=>({clave, activo: !!DB.permisosVendedor[clave]})), 'clave'),
-      supabaseClient.from('config').update({ factura_counter: DB.facturaCounter }).eq('id',1),
+      intentar('movimientos', syncTablaCompleta('movimientos', DB.movimientos.map(m=>({id:m.id, fecha:m.fecha, hora:m.hora, producto_id:(m.prodId && DB.productos.some(p=>p.id===m.prodId)) ? m.prodId : null, producto_nombre:m.producto, tipo:m.tipo, cantidad:m.cantidad, referencia:m.ref||null, usuario:m.user||null})), 'id')),
+      intentar('cuentas_por_cobrar', syncTablaCompleta('cuentas_por_cobrar', DB.cuentasPorCobrar.map(c=>({id:c.id, venta_id:c.ventaId||null, cliente_nombre:c.cliente, financiera:c.financiera||null, monto:c.monto, fecha_venta:c.fechaVenta||null, estado:c.estado, fecha_cobro:c.fechaCobro||null})), 'id')),
+      intentar('gastos', syncTablaCompleta('gastos', DB.gastos.map(g=>({id:g.id, descripcion:g.descripcion, monto:g.monto, fecha:g.fecha, hora:g.hora})), 'id')),
+      intentar('cierres', syncTablaCompleta('cierres', DB.cierres.map(c=>({id:c.id, fecha:c.fecha, cerrado_en:c.cerradoEn||null, tipo:c.tipo, efectivo:c.efectivo||0, transferencia:c.transferencia||0, tarjeta:c.tarjeta||0, credito:c.credito||0, gastos:c.gastos||0, cobros_cartera:c.cobrosCartera||0, neto_caja:c.netoCaja||0, caja_principal:c.cajaPrincipal||0, ventas_count:c.ventasCount||0, total_ventas:c.totalVentas||0})), 'id')),
+      intentar('permisos_vendedor', savePermisos()),
+      intentar('config', supabaseClient.from('config').update({ factura_counter: DB.facturaCounter }).eq('id',1)),
     ]);
+    if(fallos.length){ toast(`⚠️ No se pudo guardar en la nube: ${fallos.join(', ')}`,true); }
   } catch(e){ console.error('Error guardando en la nube:', e); toast('⚠️ No se pudo guardar en la nube',true); }
   guardando = false;
   if(guardarPendiente){ guardarPendiente = false; saveState(); }
@@ -2266,11 +2273,23 @@ function renderPermisos(){
     </div>
   `).join('');
 }
+// Guardado DEDICADO de permisos (no depende del resto de saveState()).
+// Los permisos son una función de seguridad/acceso — no deben quedar sin
+// guardarse solo porque algo más (productos, ventas, etc.) tuvo un problema.
+async function savePermisos(){
+  if(!cloudDisponible) return;
+  try{
+    await syncTablaCompleta('permisos_vendedor', Object.keys({...PERMISOS_DEFAULT_VENDEDOR,...DB.permisosVendedor}).map(clave=>({clave, activo: !!DB.permisosVendedor[clave]})), 'clave');
+  } catch(e){
+    console.error('Error guardando permisos:', e);
+    toast('⚠️ No se pudieron guardar los permisos en la nube',true);
+  }
+}
 function togglePermiso(key, activo){
   if(currentRole!=='admin')return;
   if(!DB.permisosVendedor) DB.permisosVendedor = {...PERMISOS_DEFAULT_VENDEDOR};
   DB.permisosVendedor[key] = !!activo;
-  saveState();
+  savePermisos();
   renderPermisos();
   toast(activo?'✅ Permiso activado para el vendedor':'🔒 Permiso bloqueado para el vendedor');
 }
@@ -2278,7 +2297,7 @@ function restablecerPermisosVendedor(){
   if(currentRole!=='admin')return;
   if(!confirm('¿Restablecer los permisos del vendedor a los valores originales del sistema?'))return;
   DB.permisosVendedor = {...PERMISOS_DEFAULT_VENDEDOR};
-  saveState();
+  savePermisos();
   renderPermisos();
   toast('↺ Permisos restablecidos a los valores por defecto');
 }
