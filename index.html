@@ -488,7 +488,7 @@
                 </div>
                 <div class="form-group full" id="f-financiera1-wrap" style="display:none;">
                   <label>Financiera</label>
-                  <select id="f-financiera1"><option value="">— Seleccionar —</option><option>Cash24/7</option><option>RENTINGCEL</option></select>
+                  <select id="f-financiera1"><option value="">— Seleccionar —</option><option>Cash24/7</option><option>RENTINGCEL</option><option>Addi</option><option>Sistecrédito</option><option>Cupo Brilla</option><option>Banco de Bogotá</option></select>
                 </div>
               </div>
               <div id="pago-secundario-toggle">
@@ -506,7 +506,7 @@
                   </div>
                   <div class="form-group full" id="f-financiera2-wrap" style="display:none;">
                     <label>Financiera</label>
-                    <select id="f-financiera2"><option value="">— Seleccionar —</option><option>Cash24/7</option><option>RENTINGCEL</option></select>
+                    <select id="f-financiera2"><option value="">— Seleccionar —</option><option>Cash24/7</option><option>RENTINGCEL</option><option>Addi</option><option>Sistecrédito</option><option>Cupo Brilla</option><option>Banco de Bogotá</option></select>
                   </div>
                 </div>
                 <button type="button" class="btn btn-danger btn-sm" onclick="quitarPagoSecundario()">✕ Quitar método secundario</button>
@@ -673,7 +673,7 @@
       </div>
       <div class="kpi-grid" id="kpi-cxc"></div>
       <div class="search-row" style="display:flex;gap:8px;flex-wrap:wrap;">
-        <select id="filtro-cxc-financiera" onchange="renderCXC()" style="width:190px;"><option value="">Todas las financieras</option><option>Cash24/7</option><option>RENTINGCEL</option></select>
+        <select id="filtro-cxc-financiera" onchange="renderCXC()" style="width:190px;"><option value="">Todas las financieras</option><option>Cash24/7</option><option>RENTINGCEL</option><option>Addi</option><option>Sistecrédito</option><option>Cupo Brilla</option><option>Banco de Bogotá</option></select>
         <select id="filtro-cxc-estado" onchange="renderCXC()" style="width:170px;"><option value="">Todos los estados</option><option value="Pendiente">Pendiente</option><option value="Cobrado">Cobrado</option></select>
       </div>
       <div class="card">
@@ -879,7 +879,7 @@ function puede(key){
 let DB = { productos:[], ventas:[], movimientos:[], clientes:[], cuentasPorCobrar:[], categorias:[], gastos:[], cierres:[], permisosVendedor:{...PERMISOS_DEFAULT_VENDEDOR}, facturaCounter:1000 };
 let carrito = [], editProdIdx = null, currentFactura = null, ventaAEliminarId = null, chartRefs = {};
 let pagoSecundarioActivo = false, cxcACobrarId = null;
-const FINANCIERAS = ['Cash24/7','RENTINGCEL'];
+const FINANCIERAS = ['Cash24/7','RENTINGCEL','Addi','Sistecrédito','Cupo Brilla','Banco de Bogotá'];
 
 // ============================================================
 // BASE DE DATOS EN LA NUBE (Supabase)
@@ -2110,13 +2110,16 @@ function renderCXC(){
 
   const pendienteTotal=DB.cuentasPorCobrar.filter(c=>c.estado==='Pendiente').reduce((s,c)=>s+c.monto,0);
   const cobradoTotal=DB.cuentasPorCobrar.filter(c=>c.estado==='Cobrado').reduce((s,c)=>s+c.monto,0);
-  const pendCash=DB.cuentasPorCobrar.filter(c=>c.estado==='Pendiente'&&c.financiera==='Cash24/7').reduce((s,c)=>s+c.monto,0);
-  const pendRent=DB.cuentasPorCobrar.filter(c=>c.estado==='Pendiente'&&c.financiera==='RENTINGCEL').reduce((s,c)=>s+c.monto,0);
+  const coloresFin=['kpi-blue','kpi-red','kpi-yellow','kpi-green','kpi-blue','kpi-red'];
+  const cardsFin=FINANCIERAS.map((fin,i)=>{
+    const pend=DB.cuentasPorCobrar.filter(c=>c.estado==='Pendiente'&&c.financiera===fin).reduce((s,c)=>s+c.monto,0);
+    const clase=coloresFin[i%coloresFin.length];
+    return `<div class="kpi-card ${clase}"><div class="kpi-label">Pendiente ${fin}</div><div class="kpi-val">${fmt(pend)}</div><div class="kpi-sub">saldo con esta financiera</div></div>`;
+  }).join('');
   document.getElementById('kpi-cxc').innerHTML=`
     <div class="kpi-card kpi-yellow"><div class="kpi-label">Total Pendiente</div><div class="kpi-val">${fmt(pendienteTotal)}</div><div class="kpi-sub">por cobrar a financieras</div></div>
     <div class="kpi-card kpi-green"><div class="kpi-label">Total Cobrado (histórico)</div><div class="kpi-val">${fmt(cobradoTotal)}</div><div class="kpi-sub">ya ingresado a caja</div></div>
-    <div class="kpi-card kpi-blue"><div class="kpi-label">Pendiente Cash24/7</div><div class="kpi-val">${fmt(pendCash)}</div><div class="kpi-sub">saldo con esta financiera</div></div>
-    <div class="kpi-card kpi-red"><div class="kpi-label">Pendiente RENTINGCEL</div><div class="kpi-val">${fmt(pendRent)}</div><div class="kpi-sub">saldo con esta financiera</div></div>`;
+    ${cardsFin}`;
 
   document.getElementById('tabla-cxc').innerHTML=[...f].reverse().map(c=>`<tr>
     <td><span class="badge badge-sky">${c.id}</span></td>
