@@ -1082,7 +1082,11 @@ function goTo(page){
 // UTILS
 // ============================================================
 function fmt(n){return '$'+Math.round(n).toLocaleString('es-CO');}
-function today(){ const d=new Date(); return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); }
+// Fecha LOCAL (no UTC) en formato YYYY-MM-DD para un Date cualquiera.
+// Usar siempre esta función (o today() para "ahora") en vez de .toISOString().split('T')[0],
+// que devuelve la fecha en UTC y desfasa el día en horas de la noche (bug real, ya corregido).
+function localDateStr(d){return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');}
+function today(){ return localDateStr(new Date()); }
 
 // ============================================================
 // FORMATO AUTOMÁTICO DE MILES EN CAMPOS DE DINERO
@@ -1170,7 +1174,7 @@ function renderDashboard(){
 
 function render7DaysChart(){
   const labels=[],data=[];
-  for(let i=6;i>=0;i--){const d=new Date();d.setDate(d.getDate()-i);labels.push(['Dom','Lun','Mar','Mié','Jue','Vie','Sáb'][d.getDay()]);data.push(DB.ventas.filter(v=>v.fecha===d.toISOString().split('T')[0]).reduce((s,v)=>s+v.total,0));}
+  for(let i=6;i>=0;i--){const d=new Date();d.setDate(d.getDate()-i);labels.push(['Dom','Lun','Mar','Mié','Jue','Vie','Sáb'][d.getDay()]);data.push(DB.ventas.filter(v=>v.fecha===localDateStr(d)).reduce((s,v)=>s+v.total,0));}
   const ctx=document.getElementById('chart7dias').getContext('2d');
   if(chartRefs.c7)chartRefs.c7.destroy();
   chartRefs.c7=new Chart(ctx,{type:'bar',data:{labels,datasets:[{label:'Ventas',data,backgroundColor:'rgba(214,31,38,0.5)',borderColor:'#d61f26',borderWidth:2,borderRadius:6}]},options:{plugins:{legend:{display:false}},scales:{y:{ticks:{color:'#6b7785',callback:v=>'$'+Math.round(v/1000)+'K'},grid:{color:'rgba(15,30,45,0.06)'}},x:{ticks:{color:'#6b7785'},grid:{display:false}}}}});
@@ -2061,7 +2065,7 @@ function chequearCierresAutomaticos(){
 function renderReportes(){
   const periodo=document.getElementById('rep-periodo')?.value||'semana';
   const hoy=new Date();let desde,labels=[],data=[];
-  if(periodo==='semana'){desde=new Date(hoy);desde.setDate(desde.getDate()-6);for(let i=6;i>=0;i--){const d=new Date(hoy);d.setDate(d.getDate()-i);labels.push(['Dom','Lun','Mar','Mié','Jue','Vie','Sáb'][d.getDay()]);data.push(DB.ventas.filter(v=>v.fecha===d.toISOString().split('T')[0]).reduce((s,v)=>s+v.total,0));}document.getElementById('rep-chart-title').textContent='Ventas esta semana';}
+  if(periodo==='semana'){desde=new Date(hoy);desde.setDate(desde.getDate()-6);for(let i=6;i>=0;i--){const d=new Date(hoy);d.setDate(d.getDate()-i);labels.push(['Dom','Lun','Mar','Mié','Jue','Vie','Sáb'][d.getDay()]);data.push(DB.ventas.filter(v=>v.fecha===localDateStr(d)).reduce((s,v)=>s+v.total,0));}document.getElementById('rep-chart-title').textContent='Ventas esta semana';}
   else if(periodo==='mes'){const dim=new Date(hoy.getFullYear(),hoy.getMonth()+1,0).getDate();for(let d=1;d<=dim;d++){const dd=`${hoy.getFullYear()}-${String(hoy.getMonth()+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;labels.push(d);data.push(DB.ventas.filter(v=>v.fecha===dd).reduce((s,v)=>s+v.total,0));}document.getElementById('rep-chart-title').textContent='Ventas este mes';}
   else{for(let i=2;i>=0;i--){const m=new Date(hoy.getFullYear(),hoy.getMonth()-i,1);const mk=`${m.getFullYear()}-${String(m.getMonth()+1).padStart(2,'0')}`;labels.push(m.toLocaleDateString('es-CO',{month:'short',year:'2-digit'}));data.push(DB.ventas.filter(v=>v.fecha.startsWith(mk)).reduce((s,v)=>s+v.total,0));}document.getElementById('rep-chart-title').textContent='Últimos 3 meses';}
   const ctx=document.getElementById('chartReportes').getContext('2d');
@@ -2467,7 +2471,7 @@ function toggleSidebar(force){
 async function init(){
   await loadState();refreshSelectores();
   const t=today();
-  const fi=document.getElementById('filtro-desde');if(fi)fi.value=new Date(new Date().setDate(new Date().getDate()-30)).toISOString().split('T')[0];
+  const fi=document.getElementById('filtro-desde');if(fi)fi.value=localDateStr(new Date(new Date().setDate(new Date().getDate()-30)));
   const fh=document.getElementById('filtro-hasta');if(fh)fh.value=t;
   const fc=document.getElementById('cierre-fecha');if(fc)fc.value=t;
   updateClock();setInterval(updateClock,30000);
