@@ -122,6 +122,11 @@
   .badge-yellow { background:rgba(245,158,11,0.12); color:var(--yellow); border:1px solid rgba(245,158,11,0.2); }
   .badge-sky { background:rgba(214,31,38,0.12); color:var(--accent); border:1px solid rgba(214,31,38,0.2); }
 
+  .tabs { display:flex; gap:6px; border-bottom:1px solid var(--border); }
+  .tab-btn { background:none; border:none; padding:10px 16px; font-size:13px; font-weight:700; color:var(--text2); cursor:pointer; border-bottom:2px solid transparent; margin-bottom:-1px; transition:.15s; }
+  .tab-btn:hover { color:var(--accent); }
+  .tab-btn.active { color:var(--accent); border-bottom-color:var(--accent); }
+
   .modal-overlay { position:fixed; inset:0; background:rgba(15,30,45,0.55); z-index:1000; display:none; align-items:center; justify-content:center; backdrop-filter:blur(4px); }
   .modal-overlay.open { display:flex; }
   .modal { background:var(--surface); border:1px solid var(--border); border-radius:16px; width:560px; max-height:92vh; overflow-y:auto; padding:24px; box-shadow:var(--shadow); }
@@ -564,10 +569,31 @@
         </div>
       </div>
       <div class="kpi-grid kpi-grid-3" id="kpi-inventario"></div>
-      <div class="card">
-        <div class="card-header"><span class="card-title">📋 Historial de Movimientos</span></div>
-        <table><thead><tr><th>Fecha/Hora</th><th>Producto</th><th>Tipo</th><th>Cantidad</th><th>Referencia</th><th>Usuario</th></tr></thead>
-        <tbody id="tabla-movimientos"></tbody></table>
+
+      <div class="tabs" style="margin-bottom:14px;">
+        <button class="tab-btn active" id="tab-btn-entradas" onclick="cambiarTabInventario('entradas')">📥 Entradas de Mercancía</button>
+        <button class="tab-btn" id="tab-btn-movimientos" onclick="cambiarTabInventario('movimientos')">📋 Movimientos (Todo)</button>
+      </div>
+
+      <!-- SUB-PÁGINA: ENTRADAS DE MERCANCÍA -->
+      <div id="inv-tab-entradas" class="inv-tab">
+        <div class="kpi-grid kpi-grid-3" id="kpi-entradas"></div>
+        <div class="card">
+          <div class="card-header"><span class="card-title">📥 Entradas de Mercancía</span></div>
+          <div class="page-sub" style="margin:-4px 0 12px;">Compras, devoluciones y ajustes positivos de stock — las ventas y anulaciones no aparecen aquí</div>
+          <table><thead><tr><th>Fecha/Hora</th><th>Producto</th><th>Tipo</th><th>Cantidad</th><th>Costo Unit.</th><th>Valor Total</th><th>Proveedor</th><th># Remisión</th><th>Usuario</th></tr></thead>
+          <tbody id="tabla-entradas"></tbody></table>
+        </div>
+      </div>
+
+      <!-- SUB-PÁGINA: MOVIMIENTOS (TODO) -->
+      <div id="inv-tab-movimientos" class="inv-tab" style="display:none;">
+        <div class="card">
+          <div class="card-header"><span class="card-title">📋 Historial de Movimientos</span></div>
+          <div class="page-sub" style="margin:-4px 0 12px;">Registro completo: entradas, ventas y anulaciones</div>
+          <table><thead><tr><th>Fecha/Hora</th><th>Producto</th><th>Tipo</th><th>Cantidad</th><th>Referencia</th><th>Usuario</th></tr></thead>
+          <tbody id="tabla-movimientos"></tbody></table>
+        </div>
       </div>
     </div>
 
@@ -727,10 +753,12 @@
   <div class="modal">
     <div class="modal-header"><span class="modal-title">📥 Ingreso de Mercancía</span><button class="close-btn" onclick="cerrarModal('modal-ingreso')">✕</button></div>
     <div class="form-grid form-grid-2">
-      <div class="form-group"><label>Producto</label><select id="ing-prod"><option value="">— Seleccionar —</option></select></div>
+      <div class="form-group"><label>Producto</label><select id="ing-prod" onchange="autocompletarCostoIngreso()"><option value="">— Seleccionar —</option></select></div>
       <div class="form-group"><label>Cantidad</label><input type="number" id="ing-qty" placeholder="0" min="1"></div>
       <div class="form-group"><label>Tipo de Movimiento</label><select id="ing-tipo"><option>Compra</option><option>Devolución</option><option>Ajuste positivo</option><option>Ajuste negativo</option></select></div>
-      <div class="form-group"><label>Referencia / Proveedor</label><input type="text" id="ing-ref" placeholder="Proveedor o # remisión"></div>
+      <div class="form-group"><label>Costo Unitario</label><input type="text" id="ing-costo" placeholder="0" inputmode="numeric" oninput="formatearInputDinero(this)"></div>
+      <div class="form-group"><label>Proveedor</label><input type="text" id="ing-proveedor" placeholder="Nombre del proveedor"></div>
+      <div class="form-group"><label># Remisión / Referencia</label><input type="text" id="ing-ref" placeholder="# remisión o referencia"></div>
     </div>
     <div style="display:flex;gap:10px;justify-content:flex-end;">
       <button class="btn btn-outline" onclick="cerrarModal('modal-ingreso')">Cancelar</button>
@@ -987,7 +1015,7 @@ async function saveState(){
     await intentar('abonos_cxc', syncTablaCompleta('abonos_cxc', DB.abonosCxc.map(a=>({id:a.id, cxc_id:a.cxcId, monto:a.monto, metodo:a.metodo, fecha:a.fecha, hora:a.hora||null, usuario:a.usuario||null})), 'id'));
     // El resto de tablas, sin dependencias entre sí ni con lo anterior — cada una vive o muere sola.
     await Promise.all([
-      intentar('movimientos', syncTablaCompleta('movimientos', DB.movimientos.map(m=>({id:m.id, fecha:m.fecha, hora:m.hora, producto_id:(m.prodId && DB.productos.some(p=>p.id===m.prodId)) ? m.prodId : null, producto_nombre:m.producto, tipo:m.tipo, cantidad:m.cantidad, referencia:m.ref||null, usuario:m.user||null})), 'id')),
+      intentar('movimientos', syncTablaCompleta('movimientos', DB.movimientos.map(m=>({id:m.id, fecha:m.fecha, hora:m.hora, producto_id:(m.prodId && DB.productos.some(p=>p.id===m.prodId)) ? m.prodId : null, producto_nombre:m.producto, tipo:m.tipo, cantidad:m.cantidad, referencia:m.ref||null, usuario:m.user||null, proveedor:m.proveedor||null, costo_unitario:m.costoUnitario||null})), 'id')),
       intentar('gastos', syncTablaCompleta('gastos', DB.gastos.map(g=>({id:g.id, descripcion:g.descripcion, monto:g.monto, fecha:g.fecha, hora:g.hora})), 'id')),
       intentar('cierres', syncTablaCompleta('cierres', DB.cierres.map(c=>({id:c.id, fecha:c.fecha, cerrado_en:c.cerradoEn||null, tipo:c.tipo, efectivo:c.efectivo||0, transferencia:c.transferencia||0, tarjeta:c.tarjeta||0, credito:c.credito||0, gastos:c.gastos||0, cobros_cartera:c.cobrosCartera||0, neto_caja:c.netoCaja||0, caja_principal:c.cajaPrincipal||0, ventas_count:c.ventasCount||0, total_ventas:c.totalVentas||0})), 'id')),
       intentar('permisos_vendedor', savePermisos()),
@@ -1034,7 +1062,7 @@ async function loadState(){
         return { id:v.id, fecha:v.fecha, hora:v.hora, cliente:v.cliente_nombre, cedula:v.cliente_cedula, telefono:v.cliente_telefono, pago, pagos, vendedor:v.vendedor, notas:v.notas, items:itemsPorVenta[v.id]||[], total:Number(v.total) };
       });
 
-      DB.movimientos = (mov.data||[]).map(m=>({ id:m.id, fecha:m.fecha, hora:m.hora, producto:m.producto_nombre, tipo:m.tipo, cantidad:m.cantidad, ref:m.referencia, user:m.usuario, prodId:m.producto_id }));
+      DB.movimientos = (mov.data||[]).map(m=>({ id:m.id, fecha:m.fecha, hora:m.hora, producto:m.producto_nombre, tipo:m.tipo, cantidad:m.cantidad, ref:m.referencia, user:m.usuario, prodId:m.producto_id, proveedor:m.proveedor, costoUnitario:m.costo_unitario }));
       DB.cuentasPorCobrar = (cxc.data||[]).map(c=>({ id:c.id, ventaId:c.venta_id, cliente:c.cliente_nombre, financiera:c.financiera, esDirecto:!!c.es_directo, monto:Number(c.monto), fechaVenta:c.fecha_venta, estado:c.estado, fechaCobro:c.fecha_cobro }));
       DB.abonosCxc = (abo.data||[]).map(a=>({ id:a.id, cxcId:a.cxc_id, monto:Number(a.monto), metodo:a.metodo, fecha:a.fecha, hora:a.hora, usuario:a.usuario }));
       DB.gastos = (gas.data||[]).map(g=>({ id:g.id, descripcion:g.descripcion, monto:Number(g.monto), fecha:g.fecha, hora:g.hora }));
@@ -1342,6 +1370,16 @@ function eliminarProducto(idx){if(currentRole==='vendedor'&&!puede('productos_ed
 // ============================================================
 // INVENTARIO
 // ============================================================
+// Tipos que cuentan como "entrada real de mercancía" (no ventas, no anulaciones)
+const TIPOS_ENTRADA_MERCANCIA = ['Compra','Devolución','Ajuste positivo'];
+
+function cambiarTabInventario(tab){
+  document.getElementById('inv-tab-entradas').style.display = tab==='entradas' ? '' : 'none';
+  document.getElementById('inv-tab-movimientos').style.display = tab==='movimientos' ? '' : 'none';
+  document.getElementById('tab-btn-entradas').classList.toggle('active', tab==='entradas');
+  document.getElementById('tab-btn-movimientos').classList.toggle('active', tab==='movimientos');
+}
+
 function renderInventario(){
   const ts=DB.productos.reduce((s,p)=>s+p.stock,0);
   const vi=DB.productos.reduce((s,p)=>s+(p.stock*p.costo),0);
@@ -1350,12 +1388,33 @@ function renderInventario(){
     <div class="kpi-card kpi-blue"><div class="kpi-label">Total Unidades</div><div class="kpi-val">${ts}</div><div class="kpi-sub">en existencia</div></div>
     <div class="kpi-card kpi-green"><div class="kpi-label">Valor Inventario</div><div class="kpi-val">${fmt(vi)}</div><div class="kpi-sub">a precio de costo</div></div>
     <div class="kpi-card kpi-red"><div class="kpi-label">Alertas Stock</div><div class="kpi-val">${b}</div><div class="kpi-sub">bajo mínimo</div></div>`;
+
+  // --- Pestaña 1: Entradas de Mercancía (solo Compra/Devolución/Ajuste positivo) ---
+  const entradas=DB.movimientos.filter(m=>TIPOS_ENTRADA_MERCANCIA.includes(m.tipo));
+  const unidadesIngresadas=entradas.reduce((s,m)=>s+m.cantidad,0);
+  const valorIngresado=entradas.reduce((s,m)=>s+(m.cantidad*(m.costoUnitario||0)),0);
+  document.getElementById('kpi-entradas').innerHTML=`
+    <div class="kpi-card kpi-blue"><div class="kpi-label">Unidades Ingresadas</div><div class="kpi-val">${unidadesIngresadas}</div><div class="kpi-sub">histórico</div></div>
+    <div class="kpi-card kpi-green"><div class="kpi-label">Valor Ingresado</div><div class="kpi-val">${fmt(valorIngresado)}</div><div class="kpi-sub">a costo registrado</div></div>
+    <div class="kpi-card kpi-red"><div class="kpi-label"># Entradas</div><div class="kpi-val">${entradas.length}</div><div class="kpi-sub">registros</div></div>`;
+  document.getElementById('tabla-entradas').innerHTML=[...entradas].reverse().map(m=>`<tr>
+    <td>${m.fecha} <span style="color:var(--text2)">${m.hora}</span></td>
+    <td style="font-weight:600">${m.producto}</td>
+    <td><span class="badge badge-green">${m.tipo}</span></td>
+    <td style="font-weight:800">${m.cantidad}</td>
+    <td style="color:var(--text2)">${m.costoUnitario?fmt(m.costoUnitario):'-'}</td>
+    <td style="color:var(--text2)">${m.costoUnitario?fmt(m.cantidad*m.costoUnitario):'-'}</td>
+    <td style="color:var(--text2)">${m.proveedor||'-'}</td>
+    <td style="color:var(--text2)">${m.ref||'-'}</td>
+    <td>${m.user}</td></tr>`).join('')||'<tr class="empty-row"><td colspan="9">Sin entradas de mercancía registradas</td></tr>';
+
+  // --- Pestaña 2: Movimientos (Todo) ---
   document.getElementById('tabla-movimientos').innerHTML=[...DB.movimientos].reverse().map(m=>`<tr>
     <td>${m.fecha} <span style="color:var(--text2)">${m.hora}</span></td>
     <td style="font-weight:600">${m.producto}</td>
     <td><span class="badge ${m.tipo.includes('negativo')||m.tipo==='Venta'?'badge-red':m.tipo.includes('Anulación')?'badge-yellow':'badge-green'}">${m.tipo}</span></td>
     <td style="font-weight:800">${m.cantidad}</td>
-    <td style="color:var(--text2)">${m.ref}</td>
+    <td style="color:var(--text2)">${m.proveedor?m.proveedor+(m.ref?' · '+m.ref:''):(m.ref||'-')}</td>
     <td>${m.user}</td></tr>`).join('')||'<tr class="empty-row"><td colspan="6">Sin movimientos</td></tr>';
 }
 
@@ -1448,18 +1507,35 @@ function exportarInventarioPDF(){
   toast('📄 PDF de inventario descargado');
 }
 
-function abrirModalIngreso(){if(currentRole==='vendedor'&&!puede('inventario_editar')){toast('No tienes permiso para modificar el inventario',true);return;}const s=document.getElementById('ing-prod');s.innerHTML='<option value="">— Seleccionar —</option>'+DB.productos.map(p=>`<option value="${p.id}">${p.nombre} (Stock: ${p.stock})</option>`).join('');abrirModal('modal-ingreso');}
+function abrirModalIngreso(){
+  if(currentRole==='vendedor'&&!puede('inventario_editar')){toast('No tienes permiso para modificar el inventario',true);return;}
+  const s=document.getElementById('ing-prod');
+  s.innerHTML='<option value="">— Seleccionar —</option>'+DB.productos.map(p=>`<option value="${p.id}">${p.nombre} (Stock: ${p.stock})</option>`).join('');
+  document.getElementById('ing-qty').value='';
+  document.getElementById('ing-costo').value='';
+  document.getElementById('ing-proveedor').value='';
+  document.getElementById('ing-ref').value='';
+  abrirModal('modal-ingreso');
+}
+// Al elegir un producto, sugiere su costo actual como punto de partida (el usuario lo puede editar).
+function autocompletarCostoIngreso(){
+  const pid=document.getElementById('ing-prod').value;
+  const p=DB.productos.find(x=>x.id===pid);
+  if(p&&p.costo)ponerValorDinero('ing-costo',p.costo);
+}
 function guardarIngreso(){
   if(currentRole==='vendedor'&&!puede('inventario_editar')){toast('No tienes permiso para modificar el inventario',true);return;}
   const pid=document.getElementById('ing-prod').value;
   const qty=parseInt(document.getElementById('ing-qty').value)||0;
   const tipo=document.getElementById('ing-tipo').value;
-  const ref=document.getElementById('ing-ref').value;
+  const costoUnitario=numeroDesdeInput('ing-costo');
+  const proveedor=document.getElementById('ing-proveedor').value.trim();
+  const ref=document.getElementById('ing-ref').value.trim();
   if(!pid||qty<=0){toast('Selecciona un producto y una cantidad mayor a cero',true);return;}
   const p=DB.productos.find(x=>x.id===pid);
   if(tipo.includes('negativo')){p.stock=Math.max(0,p.stock-qty);}else{p.stock+=qty;}
   const now=new Date();
-  DB.movimientos.push({id:'M'+Date.now()+'-'+Math.random().toString(36).slice(2,7),fecha:today(),hora:now.toTimeString().slice(0,5),producto:p.nombre,prodId:p.id,tipo,cantidad:qty,ref:ref||'-',user:'Admin'});
+  DB.movimientos.push({id:'M'+Date.now()+'-'+Math.random().toString(36).slice(2,7),fecha:today(),hora:now.toTimeString().slice(0,5),producto:p.nombre,prodId:p.id,tipo,cantidad:qty,costoUnitario:costoUnitario||null,proveedor:proveedor||null,ref:ref||'-',user:'Admin'});
   cerrarModal('modal-ingreso');renderInventario();refreshSelectores();
   toast(`📥 ${tipo}: ${qty} uds de ${p.nombre}`);
   saveState();
