@@ -481,7 +481,7 @@
               <div class="form-grid form-grid-2">
                 <div class="form-group"><label>Método de Pago</label>
                   <select id="f-pago1" onchange="onCambioMetodoPago(1)">
-                    <option>Efectivo</option><option>Tarjeta Débito</option><option>Tarjeta Crédito</option><option>Transferencia Nequi</option><option>Transferencia Bancolombia</option><option>Transferencia Davivienda</option><option>Crédito / Cuotas</option>
+                    <option>Efectivo</option><option>Tarjeta Débito</option><option>Tarjeta Crédito</option><option>Transferencia Nequi</option><option>Transferencia Bancolombia</option><option>Transferencia Davivienda</option><option>Crédito / Cuotas</option><option>Crédito Directo</option>
                   </select>
                 </div>
                 <div class="form-group"><label>Monto</label>
@@ -499,7 +499,7 @@
                 <div class="form-grid form-grid-2">
                   <div class="form-group"><label>Método de Pago Secundario</label>
                     <select id="f-pago2" onchange="onCambioMetodoPago(2)">
-                      <option>Efectivo</option><option>Tarjeta Débito</option><option>Tarjeta Crédito</option><option>Transferencia Nequi</option><option>Transferencia Bancolombia</option><option>Transferencia Davivienda</option><option>Crédito / Cuotas</option>
+                      <option>Efectivo</option><option>Tarjeta Débito</option><option>Tarjeta Crédito</option><option>Transferencia Nequi</option><option>Transferencia Bancolombia</option><option>Transferencia Davivienda</option><option>Crédito / Cuotas</option><option>Crédito Directo</option>
                     </select>
                   </div>
                   <div class="form-group"><label>Monto Secundario</label>
@@ -578,7 +578,7 @@
         <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
           <input type="date" id="filtro-desde" style="width:142px;" onchange="renderVentas()">
           <input type="date" id="filtro-hasta" style="width:142px;" onchange="renderVentas()">
-          <select id="filtro-pago" onchange="renderVentas()" style="width:170px;"><option value="">Todas las formas de pago</option><option>Efectivo</option><option>Tarjeta Débito</option><option>Tarjeta Crédito</option><option>Transferencia Nequi</option><option>Transferencia Bancolombia</option><option>Transferencia Davivienda</option><option>Crédito / Cuotas</option></select>
+          <select id="filtro-pago" onchange="renderVentas()" style="width:170px;"><option value="">Todas las formas de pago</option><option>Efectivo</option><option>Tarjeta Débito</option><option>Tarjeta Crédito</option><option>Transferencia Nequi</option><option>Transferencia Bancolombia</option><option>Transferencia Davivienda</option><option>Crédito / Cuotas</option><option>Crédito Directo</option></select>
         </div>
       </div>
       <div class="kpi-grid" id="kpi-ventas"></div>
@@ -674,15 +674,16 @@
     <!-- CUENTAS POR COBRAR -->
     <div id="page-cxc" class="page">
       <div class="page-header">
-        <div><div class="page-title">📋 Cuentas por Cobrar</div><div class="page-sub">Saldos de ventas a Crédito pendientes de pago por las financieras</div></div>
+        <div><div class="page-title">📋 Cuentas por Cobrar</div><div class="page-sub">Saldos de ventas a crédito pendientes — financieras y crédito directo con clientes</div></div>
       </div>
       <div class="kpi-grid" id="kpi-cxc"></div>
       <div class="search-row" style="display:flex;gap:8px;flex-wrap:wrap;">
+        <select id="filtro-cxc-tipo" onchange="renderCXC()" style="width:180px;"><option value="">Todos los tipos</option><option value="financiera">🏦 Financiera</option><option value="directo">🏠 Crédito Directo</option></select>
         <select id="filtro-cxc-financiera" onchange="renderCXC()" style="width:190px;"><option value="">Todas las financieras</option><option>Cash24/7</option><option>RENTINGCEL</option><option>Addi</option><option>Sistecrédito</option><option>Cupo Brilla</option><option>Banco de Bogotá</option></select>
-        <select id="filtro-cxc-estado" onchange="renderCXC()" style="width:170px;"><option value="">Todos los estados</option><option value="Pendiente">Pendiente</option><option value="Cobrado">Cobrado</option></select>
+        <select id="filtro-cxc-estado" onchange="renderCXC()" style="width:170px;"><option value="">Todos los estados</option><option value="Pendiente">Pendiente</option><option value="Parcial">Abono Parcial</option><option value="Pagado">Pagado</option></select>
       </div>
       <div class="card">
-        <table><thead><tr><th>ID</th><th>#Factura</th><th>Cliente</th><th>Financiera</th><th>Monto</th><th>Fecha Venta</th><th>Estado</th><th>Fecha Cobro</th><th>Acciones</th></tr></thead>
+        <table><thead><tr><th>ID</th><th>#Factura</th><th>Cliente</th><th>Tipo</th><th>Monto Total</th><th>Saldo Pendiente</th><th>Fecha Venta</th><th>Estado</th><th>Acciones</th></tr></thead>
         <tbody id="tabla-cxc"></tbody></table>
       </div>
     </div>
@@ -773,18 +774,30 @@
 
 <!-- MODAL CONFIRMAR ELIMINACIÓN VENTA -->
 <!-- MODAL CONFIRMAR COBRO CXC -->
-<div class="modal-overlay" id="modal-confirm-cobro">
-  <div class="modal" style="width:420px;">
-    <div class="modal-header"><span class="modal-title">💵 Confirmar Cobro</span><button class="close-btn" onclick="cerrarModal('modal-confirm-cobro')">✕</button></div>
-    <div class="confirm-box">
-      <div class="confirm-icon">💰</div>
-      <div class="confirm-msg" id="confirm-cobro-msg">¿Marcar esta cuenta como cobrada?</div>
-      <div class="confirm-sub" id="confirm-cobro-sub">El monto ingresará formalmente a la Caja Principal.</div>
-      <div class="confirm-btns">
-        <button class="btn btn-outline" onclick="cerrarModal('modal-confirm-cobro')">Cancelar</button>
-        <button class="btn btn-success" onclick="confirmarCobroCXC()">✅ Sí, Marcar Cobrado</button>
+<div class="modal-overlay" id="modal-abono-cxc">
+  <div class="modal" style="width:440px;">
+    <div class="modal-header"><span class="modal-title">💰 Registrar Abono</span><button class="close-btn" onclick="cerrarModal('modal-abono-cxc')">✕</button></div>
+    <div style="padding:4px 4px 6px;">
+      <div id="abono-cxc-info" style="background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:10px 12px;margin-bottom:14px;font-size:12.5px;color:var(--text2);"></div>
+      <div class="form-grid form-grid-2">
+        <div class="form-group"><label>Monto del Abono ($)</label><input id="abono-monto" type="text" inputmode="numeric" placeholder="0" oninput="formatearInputDinero(this)"></div>
+        <div class="form-group"><label>Método de Pago</label>
+          <select id="abono-metodo">
+            <option>Efectivo</option><option>Transferencia Nequi</option><option>Transferencia Bancolombia</option><option>Transferencia Davivienda</option><option>Tarjeta Débito</option><option>Tarjeta Crédito</option>
+          </select>
+        </div>
+        <div class="form-group full"><label>Fecha del Abono</label><input id="abono-fecha" type="date"></div>
       </div>
+      <button class="btn btn-primary" style="width:100%;justify-content:center;margin-top:6px;" onclick="guardarAbonoCXC()">💾 Registrar Abono</button>
     </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="modal-historial-abonos">
+  <div class="modal" style="width:480px;">
+    <div class="modal-header"><span class="modal-title">📜 Historial de Abonos</span><button class="close-btn" onclick="cerrarModal('modal-historial-abonos')">✕</button></div>
+    <div id="historial-abonos-info" style="padding:4px 4px 10px;font-size:12.5px;color:var(--text2);"></div>
+    <table><thead><tr><th>Fecha</th><th>Método</th><th>Monto</th><th>Usuario</th></tr></thead><tbody id="tabla-historial-abonos"></tbody></table>
   </div>
 </div>
 
@@ -881,9 +894,9 @@ function puede(key){
   return !!permisos[key];
 }
 
-let DB = { productos:[], ventas:[], movimientos:[], clientes:[], cuentasPorCobrar:[], categorias:[], gastos:[], cierres:[], permisosVendedor:{...PERMISOS_DEFAULT_VENDEDOR}, facturaCounter:1000 };
+let DB = { productos:[], ventas:[], movimientos:[], clientes:[], cuentasPorCobrar:[], abonosCxc:[], categorias:[], gastos:[], cierres:[], permisosVendedor:{...PERMISOS_DEFAULT_VENDEDOR}, facturaCounter:1000 };
 let carrito = [], editProdIdx = null, currentFactura = null, ventaAEliminarId = null, chartRefs = {};
-let pagoSecundarioActivo = false, cxcACobrarId = null;
+let pagoSecundarioActivo = false, cxcAbonoId = null;
 const FINANCIERAS = ['Cash24/7','RENTINGCEL','Addi','Sistecrédito','Cupo Brilla','Banco de Bogotá'];
 
 // ============================================================
@@ -969,10 +982,12 @@ async function saveState(){
     await intentar('ventas', syncTablaCompleta('ventas', filasVentas, 'id'));
     await intentar('venta_items', syncTablaCompleta('venta_items', filasItems, 'id'));
     await intentar('venta_pagos', syncTablaCompleta('venta_pagos', filasPagos, 'id'));
+    // cuentas_por_cobrar debe ir antes que abonos_cxc: éste depende de aquél por llave foránea (cxc_id).
+    await intentar('cuentas_por_cobrar', syncTablaCompleta('cuentas_por_cobrar', DB.cuentasPorCobrar.map(c=>({id:c.id, venta_id:c.ventaId||null, cliente_nombre:c.cliente, financiera:c.financiera||null, es_directo:!!c.esDirecto, monto:c.monto, fecha_venta:c.fechaVenta||null, estado:c.estado, fecha_cobro:c.fechaCobro||null})), 'id'));
+    await intentar('abonos_cxc', syncTablaCompleta('abonos_cxc', DB.abonosCxc.map(a=>({id:a.id, cxc_id:a.cxcId, monto:a.monto, metodo:a.metodo, fecha:a.fecha, hora:a.hora||null, usuario:a.usuario||null})), 'id'));
     // El resto de tablas, sin dependencias entre sí ni con lo anterior — cada una vive o muere sola.
     await Promise.all([
       intentar('movimientos', syncTablaCompleta('movimientos', DB.movimientos.map(m=>({id:m.id, fecha:m.fecha, hora:m.hora, producto_id:(m.prodId && DB.productos.some(p=>p.id===m.prodId)) ? m.prodId : null, producto_nombre:m.producto, tipo:m.tipo, cantidad:m.cantidad, referencia:m.ref||null, usuario:m.user||null})), 'id')),
-      intentar('cuentas_por_cobrar', syncTablaCompleta('cuentas_por_cobrar', DB.cuentasPorCobrar.map(c=>({id:c.id, venta_id:c.ventaId||null, cliente_nombre:c.cliente, financiera:c.financiera||null, monto:c.monto, fecha_venta:c.fechaVenta||null, estado:c.estado, fecha_cobro:c.fechaCobro||null})), 'id')),
       intentar('gastos', syncTablaCompleta('gastos', DB.gastos.map(g=>({id:g.id, descripcion:g.descripcion, monto:g.monto, fecha:g.fecha, hora:g.hora})), 'id')),
       intentar('cierres', syncTablaCompleta('cierres', DB.cierres.map(c=>({id:c.id, fecha:c.fecha, cerrado_en:c.cerradoEn||null, tipo:c.tipo, efectivo:c.efectivo||0, transferencia:c.transferencia||0, tarjeta:c.tarjeta||0, credito:c.credito||0, gastos:c.gastos||0, cobros_cartera:c.cobrosCartera||0, neto_caja:c.netoCaja||0, caja_principal:c.cajaPrincipal||0, ventas_count:c.ventasCount||0, total_ventas:c.totalVentas||0})), 'id')),
       intentar('permisos_vendedor', savePermisos()),
@@ -988,7 +1003,7 @@ async function saveState(){
 async function loadState(){
   if(!cloudDisponible){ seedData(); return; }
   try{
-    const [prod, cli, cat, vts, vit, vpg, mov, cxc, gas, cie, perm, cfg] = await Promise.all([
+    const [prod, cli, cat, vts, vit, vpg, mov, cxc, abo, gas, cie, perm, cfg] = await Promise.all([
       supabaseClient.from('productos').select('*'),
       supabaseClient.from('clientes').select('*'),
       supabaseClient.from('categorias').select('nombre').order('id'),
@@ -997,12 +1012,13 @@ async function loadState(){
       supabaseClient.from('venta_pagos').select('*'),
       supabaseClient.from('movimientos').select('*'),
       supabaseClient.from('cuentas_por_cobrar').select('*'),
+      supabaseClient.from('abonos_cxc').select('*'),
       supabaseClient.from('gastos').select('*'),
       supabaseClient.from('cierres').select('*'),
       supabaseClient.from('permisos_vendedor').select('*'),
       supabaseClient.from('config').select('*').eq('id',1).single(),
     ]);
-    [prod,cli,cat,vts,vit,vpg,mov,cxc,gas,cie,perm,cfg].forEach(r=>{ if(r.error) throw r.error; });
+    [prod,cli,cat,vts,vit,vpg,mov,cxc,abo,gas,cie,perm,cfg].forEach(r=>{ if(r.error) throw r.error; });
 
     if(prod.data && prod.data.length){
       DB.productos = prod.data.map(p=>({ id:p.id, codigo:p.codigo, nombre:p.nombre, cat:p.categoria, precio:Number(p.precio), costo:Number(p.costo), stock:p.stock, min:p.stock_minimo, desc:p.descripcion }));
@@ -1019,7 +1035,8 @@ async function loadState(){
       });
 
       DB.movimientos = (mov.data||[]).map(m=>({ id:m.id, fecha:m.fecha, hora:m.hora, producto:m.producto_nombre, tipo:m.tipo, cantidad:m.cantidad, ref:m.referencia, user:m.usuario, prodId:m.producto_id }));
-      DB.cuentasPorCobrar = (cxc.data||[]).map(c=>({ id:c.id, ventaId:c.venta_id, cliente:c.cliente_nombre, financiera:c.financiera, monto:Number(c.monto), fechaVenta:c.fecha_venta, estado:c.estado, fechaCobro:c.fecha_cobro }));
+      DB.cuentasPorCobrar = (cxc.data||[]).map(c=>({ id:c.id, ventaId:c.venta_id, cliente:c.cliente_nombre, financiera:c.financiera, esDirecto:!!c.es_directo, monto:Number(c.monto), fechaVenta:c.fecha_venta, estado:c.estado, fechaCobro:c.fecha_cobro }));
+      DB.abonosCxc = (abo.data||[]).map(a=>({ id:a.id, cxcId:a.cxc_id, monto:Number(a.monto), metodo:a.metodo, fecha:a.fecha, hora:a.hora, usuario:a.usuario }));
       DB.gastos = (gas.data||[]).map(g=>({ id:g.id, descripcion:g.descripcion, monto:Number(g.monto), fecha:g.fecha, hora:g.hora }));
       DB.cierres = (cie.data||[]).map(c=>({ id:c.id, fecha:c.fecha, cerradoEn:c.cerrado_en, tipo:c.tipo, efectivo:Number(c.efectivo), transferencia:Number(c.transferencia), tarjeta:Number(c.tarjeta), credito:Number(c.credito), gastos:Number(c.gastos), cobrosCartera:Number(c.cobros_cartera), netoCaja:Number(c.neto_caja), cajaPrincipal:Number(c.caja_principal), ventasCount:c.ventas_count, totalVentas:Number(c.total_ventas) }));
 
@@ -1049,6 +1066,7 @@ function seedData() {
   DB.ventas = [];
   DB.movimientos = [];
   DB.cuentasPorCobrar = [];
+  DB.abonosCxc = [];
   DB.categorias = ['Celulares Nuevos','Celulares Usados','Accesorios','Tablets'];
   DB.gastos = [];
   DB.cierres = [];
@@ -1130,13 +1148,13 @@ function pagosDeVenta(v){
   if(Array.isArray(v.pagos)&&v.pagos.length)return v.pagos;
   return [{metodo:v.pago,monto:v.total,financiera:null}];
 }
-// Monto de una venta que entra directo a Caja Principal (excluye lo que va a Crédito/Cuentas por Cobrar)
+// Monto de una venta que entra directo a Caja Principal (excluye lo que va a Crédito/Cuentas por Cobrar, sea de financiera o directo)
 function montoCajaDeVenta(v){
-  return pagosDeVenta(v).filter(p=>p.metodo!=='Crédito / Cuotas').reduce((s,p)=>s+p.monto,0);
+  return pagosDeVenta(v).filter(p=>p.metodo!=='Crédito / Cuotas'&&p.metodo!=='Crédito Directo').reduce((s,p)=>s+p.monto,0);
 }
-// Monto de una venta que se fue a Crédito (Cuentas por Cobrar)
+// Monto de una venta que se fue a Crédito (Cuentas por Cobrar), sea de financiera o directo
 function montoCreditoDeVenta(v){
-  return pagosDeVenta(v).filter(p=>p.metodo==='Crédito / Cuotas').reduce((s,p)=>s+p.monto,0);
+  return pagosDeVenta(v).filter(p=>p.metodo==='Crédito / Cuotas'||p.metodo==='Crédito Directo').reduce((s,p)=>s+p.monto,0);
 }
 function toast(msg,err=false){const t=document.getElementById('toast');t.textContent=msg;t.className=err?'error':'';t.style.display='block';setTimeout(()=>t.style.display='none',3000);}
 function cerrarModal(id){document.getElementById(id).classList.remove('open');}
@@ -1151,8 +1169,9 @@ function renderDashboard(){
   const totHoy=vHoy.reduce((s,v)=>s+v.total,0);
   const totMes=DB.ventas.filter(v=>v.fecha.slice(0,7)===hoy.slice(0,7)).reduce((s,v)=>s+v.total,0);
   const bajos=DB.productos.filter(p=>p.stock<=p.min).length;
-  const cajaHoy=vHoy.reduce((s,v)=>s+montoCajaDeVenta(v),0)+DB.cuentasPorCobrar.filter(c=>c.estado==='Cobrado'&&c.fechaCobro===hoy).reduce((s,c)=>s+c.monto,0);
-  const carteraPendiente=DB.cuentasPorCobrar.filter(c=>c.estado==='Pendiente').reduce((s,c)=>s+c.monto,0);
+  const abonosHoy=DB.abonosCxc.filter(a=>a.fecha===hoy).reduce((s,a)=>s+a.monto,0);
+  const cajaHoy=vHoy.reduce((s,v)=>s+montoCajaDeVenta(v),0)+abonosHoy;
+  const carteraPendiente=DB.cuentasPorCobrar.reduce((s,c)=>s+saldoPendienteCXC(c),0);
   document.getElementById('kpi-grid').innerHTML=`
     <div class="kpi-card kpi-green"><div class="kpi-label">Ventas Hoy</div><div class="kpi-val">${fmt(totHoy)}</div><div class="kpi-sub">${vHoy.length} transacciones</div></div>
     <div class="kpi-card kpi-blue"><div class="kpi-label">Ventas del Mes</div><div class="kpi-val">${fmt(totMes)}</div><div class="kpi-sub">${DB.ventas.filter(v=>v.fecha.slice(0,7)===hoy.slice(0,7)).length} transacciones</div></div>
@@ -1223,13 +1242,15 @@ function confirmarEliminarVenta(){
     DB.movimientos.push({id:'M'+Date.now()+'-'+Math.random().toString(36).slice(2,7),fecha:today(),hora:now.toTimeString().slice(0,5),producto:item.nombre,prodId:item.prodId,tipo:'Anulación de venta',cantidad:item.qty,ref:'Eliminado: '+v.id,user:'Admin'});
   });
   DB.ventas.splice(idx,1);
-  // Eliminar cuentas por cobrar asociadas a esta venta
+  // Eliminar cuentas por cobrar asociadas a esta venta (y sus abonos, si tenía)
   const cxcAsociadas=DB.cuentasPorCobrar.filter(c=>c.ventaId===v.id);
-  const cobradasYa=cxcAsociadas.filter(c=>c.estado==='Cobrado').length;
+  const conAbonos=cxcAsociadas.filter(c=>abonosDeCXC(c.id).length>0).length;
+  const idsCxcAsociadas=new Set(cxcAsociadas.map(c=>c.id));
   DB.cuentasPorCobrar=DB.cuentasPorCobrar.filter(c=>c.ventaId!==v.id);
+  DB.abonosCxc=DB.abonosCxc.filter(a=>!idsCxcAsociadas.has(a.cxcId));
   ventaAEliminarId=null;
   cerrarModal('modal-confirm-venta');
-  toast(`🗑️ Venta ${v.id} eliminada — stock restaurado${cxcAsociadas.length?` · ${cxcAsociadas.length} cuenta(s) por cobrar eliminada(s)${cobradasYa?` (${cobradasYa} ya estaban cobradas)`:''}`:''}`, cobradasYa>0);
+  toast(`🗑️ Venta ${v.id} eliminada — stock restaurado${cxcAsociadas.length?` · ${cxcAsociadas.length} cuenta(s) por cobrar eliminada(s)${conAbonos?` (${conAbonos} tenían abonos registrados que también se eliminaron)`:''}`:''}`, conAbonos>0);
   saveState();
   // Refrescar la página activa
   const active=document.querySelector('.page.active');
@@ -1642,13 +1663,14 @@ function finalizarVenta(){
   const venta={id:'F'+DB.facturaCounter,fecha:today(),hora:now.toTimeString().slice(0,5),cliente,cedula,telefono,pago:pagoLabel,pagos,vendedor,notas,items:[...carrito],total};
   DB.ventas.push(venta);
 
-  // --- Cuentas por Cobrar: montos a Crédito NO ingresan a Caja de inmediato ---
-  pagos.filter(p=>p.metodo==='Crédito / Cuotas').forEach((p,i)=>{
+  // --- Cuentas por Cobrar: montos a Crédito (financiera o directo) NO ingresan a Caja de inmediato ---
+  pagos.filter(p=>p.metodo==='Crédito / Cuotas'||p.metodo==='Crédito Directo').forEach((p,i)=>{
     DB.cuentasPorCobrar.push({
       id:'CXC'+venta.id+'-'+(i+1),
       ventaId:venta.id,
       cliente,
-      financiera:p.financiera,
+      financiera:p.metodo==='Crédito Directo'?null:p.financiera,
+      esDirecto:p.metodo==='Crédito Directo',
       monto:p.monto,
       fechaVenta:venta.fecha,
       estado:'Pendiente',
@@ -1860,21 +1882,104 @@ const METODO_META = {
   'Transferencia Nequi':{icon:'📲', color:'#ef1d67'},
   'Transferencia Bancolombia':{icon:'🏦', color:'#f5c400'},
   'Transferencia Davivienda':{icon:'🏦', color:'#e2091a'},
-  'Crédito / Cuotas':{icon:'📋', color:'#f59e0b'}
+  'Crédito / Cuotas':{icon:'📋', color:'#f59e0b'},
+  'Crédito Directo':{icon:'🏠', color:'#8a6b4e'}
 };
 function metodoMeta(m){
   if(METODO_META[m]) return METODO_META[m];
   if(m && m.startsWith('Transferencia')) return {icon:'🏦', color:'#8a6b4e'};
   return {icon:'💳', color:'#8a6b4e'};
 }
-// Caja Principal = SOLO efectivo físico histórico (ventas en Efectivo + cobros de cartera cobrados) menos gastos de empresa históricos.
+// Caja Principal = SOLO efectivo físico histórico (ventas en Efectivo + abonos a Cuentas por Cobrar
+// pagados en Efectivo, sea de financiera o crédito directo) menos gastos de empresa históricos.
 // Transferencia y Tarjeta NO son dinero físico en la caja, por eso no se suman aquí (aunque sí son ingresos del negocio).
+// Cada abono ahora guarda su propio método de pago (ver abonos_cxc), así que un abono por
+// transferencia o tarjeta no infla la Caja Principal — solo lo hace si el cliente pagó en efectivo.
 function cajaPrincipalActual(){
-  const efectivoHistorico = DB.ventas.reduce((s,v)=>s+pagosDeVenta(v).filter(p=>p.metodo==='Efectivo').reduce((ss,p)=>ss+p.monto,0),0);
-  const cobrosCarteraHistorico = DB.cuentasPorCobrar.filter(c=>c.estado==='Cobrado').reduce((s,c)=>s+c.monto,0);
+  const efectivoVentasHistorico = DB.ventas.reduce((s,v)=>s+pagosDeVenta(v).filter(p=>p.metodo==='Efectivo').reduce((ss,p)=>ss+p.monto,0),0);
+  const efectivoAbonosHistorico = DB.abonosCxc.filter(a=>a.metodo==='Efectivo').reduce((s,a)=>s+a.monto,0);
   const gastosHistoricos = DB.gastos.reduce((s,g)=>s+g.monto,0);
-  return efectivoHistorico + cobrosCarteraHistorico - gastosHistoricos;
+  return efectivoVentasHistorico + efectivoAbonosHistorico - gastosHistoricos;
 }
+
+// ============================================================
+// ABONOS A CUENTAS POR COBRAR — pagos parciales con método propio
+// ============================================================
+function abonosDeCXC(cxcId){
+  return DB.abonosCxc.filter(a=>a.cxcId===cxcId);
+}
+// Saldo pendiente de una cuenta por cobrar = monto original - suma de sus abonos.
+function saldoPendienteCXC(c){
+  const abonado = abonosDeCXC(c.id).reduce((s,a)=>s+a.monto,0);
+  return Math.max(0, Math.round((c.monto - abonado)*100)/100);
+}
+function estadoCXC(c){
+  const saldo = saldoPendienteCXC(c);
+  if(saldo<=0) return 'Pagado';
+  if(abonosDeCXC(c.id).length>0) return 'Parcial';
+  return 'Pendiente';
+}
+function pedirAbonoCXC(id){
+  const c=DB.cuentasPorCobrar.find(x=>x.id===id);
+  if(!c)return;
+  const saldo=saldoPendienteCXC(c);
+  if(saldo<=0){toast('Esta cuenta ya está totalmente pagada',true);return;}
+  cxcAbonoId=id;
+  document.getElementById('abono-cxc-info').innerHTML=`
+    <div style="font-weight:700">${c.cliente}</div>
+    <div style="color:var(--text2);margin-top:2px">Venta ${c.ventaId} · ${c.esDirecto?'🏠 Crédito Directo':'🏦 '+c.financiera}</div>
+    <div style="margin-top:6px">Saldo pendiente: <strong style="color:var(--accent)">${fmt(saldo)}</strong> de ${fmt(c.monto)} total</div>`;
+  ponerValorDinero('abono-monto', saldo);
+  document.getElementById('abono-metodo').selectedIndex=0;
+  document.getElementById('abono-fecha').value=today();
+  abrirModal('modal-abono-cxc');
+}
+function guardarAbonoCXC(){
+  if(!cxcAbonoId)return;
+  const c=DB.cuentasPorCobrar.find(x=>x.id===cxcAbonoId);
+  if(!c){cerrarModal('modal-abono-cxc');return;}
+  const monto=numeroDesdeInput('abono-monto');
+  const metodo=document.getElementById('abono-metodo').value;
+  const fecha=document.getElementById('abono-fecha').value||today();
+  const saldo=saldoPendienteCXC(c);
+  if(!monto||monto<=0){toast('Ingresa un monto de abono válido',true);return;}
+  if(monto>saldo+1){toast(`El abono (${fmt(monto)}) no puede ser mayor al saldo pendiente (${fmt(saldo)})`,true);return;}
+  const now=new Date();
+  DB.abonosCxc.push({
+    id:'AB'+Date.now()+'-'+Math.random().toString(36).slice(2,7),
+    cxcId:c.id, monto, metodo, fecha, hora:now.toTimeString().slice(0,5),
+    usuario: currentUsername || (currentRole==='admin'?'Admin':'Vendedor')
+  });
+  const nuevoSaldo=saldoPendienteCXC(c);
+  c.estado = nuevoSaldo<=0 ? 'Pagado' : 'Parcial';
+  if(nuevoSaldo<=0) c.fechaCobro=fecha;
+  cxcAbonoId=null;
+  cerrarModal('modal-abono-cxc');
+  toast(nuevoSaldo<=0
+    ? `✅ Cuenta saldada — ${fmt(monto)} (${metodo}) ingresó al negocio`
+    : `💰 Abono de ${fmt(monto)} (${metodo}) registrado — saldo restante: ${fmt(nuevoSaldo)}`);
+  renderCXC();
+  saveState();
+  const active=document.querySelector('.page.active');
+  if(active){
+    const pid=active.id.replace('page-','');
+    const acts={dashboard:renderDashboard,cierre:renderCierre};
+    if(acts[pid])acts[pid]();
+  }
+}
+function verHistorialAbonos(id){
+  const c=DB.cuentasPorCobrar.find(x=>x.id===id);
+  if(!c)return;
+  const abonos=[...abonosDeCXC(id)].sort((a,b)=>(a.fecha+a.hora).localeCompare(b.fecha+b.hora));
+  document.getElementById('historial-abonos-info').innerHTML=`<strong>${c.cliente}</strong> · Venta ${c.ventaId} · Total: ${fmt(c.monto)} · Saldo pendiente: ${fmt(saldoPendienteCXC(c))}`;
+  document.getElementById('tabla-historial-abonos').innerHTML=abonos.map(a=>`<tr>
+    <td style="font-size:12px">${a.fecha} <span style="color:var(--text2)">${a.hora||''}</span></td>
+    <td><span class="badge badge-sky">${a.metodo}</span></td>
+    <td style="font-weight:800;color:var(--accent)">${fmt(a.monto)}</td>
+    <td style="font-size:12px">${a.usuario||'—'}</td></tr>`).join('')||'<tr class="empty-row"><td colspan="4">Sin abonos registrados aún</td></tr>';
+  abrirModal('modal-historial-abonos');
+}
+
 function abrirModalGasto(){
   if(currentRole==='vendedor'&&!puede('cierre_gastos')){toast('No tienes permiso para registrar gastos',true);return;}
   document.getElementById('gasto-descripcion').value='';
@@ -1906,23 +2011,44 @@ function eliminarGasto(id){
 function calcularDatosCierre(fecha){
   const hoy=DB.ventas.filter(v=>v.fecha===fecha);
   const total=hoy.reduce((s,v)=>s+v.total,0);
+
+  // Ventas del día, por método de pago
+  const porMetodoVentas={};
+  hoy.forEach(v=>{pagosDeVenta(v).forEach(p=>{porMetodoVentas[p.metodo]=(porMetodoVentas[p.metodo]||0)+p.monto;});});
+
+  // Abonos a Cuentas por Cobrar recibidos HOY (financieras + crédito directo), cada uno
+  // sumado al método de pago con el que realmente se recibió — ya no se asume que todo
+  // cobro de cartera es efectivo.
+  const abonosHoy=DB.abonosCxc.filter(a=>a.fecha===fecha);
+  const porMetodoAbonos={};
+  abonosHoy.forEach(a=>{porMetodoAbonos[a.metodo]=(porMetodoAbonos[a.metodo]||0)+a.monto;});
+  const abonosDirectoHoy=abonosHoy.filter(a=>{const c=DB.cuentasPorCobrar.find(x=>x.id===a.cxcId);return c&&c.esDirecto;}).reduce((s,a)=>s+a.monto,0);
+  const cobrosCarteraHoy=abonosHoy.reduce((s,a)=>s+a.monto,0);
+  const abonosFinancieraHoy=cobrosCarteraHoy-abonosDirectoHoy;
+
+  // Combinado (ventas + abonos) por método — es lo que realmente entró físicamente hoy
   const porMetodo={};
-  hoy.forEach(v=>{pagosDeVenta(v).forEach(p=>{porMetodo[p.metodo]=(porMetodo[p.metodo]||0)+p.monto;});});
-  const efectivoHoy=porMetodo['Efectivo']||0;
+  [porMetodoVentas,porMetodoAbonos].forEach(dict=>Object.keys(dict).forEach(k=>{porMetodo[k]=(porMetodo[k]||0)+dict[k];}));
+
+  const ventasEfectivoHoy=porMetodoVentas['Efectivo']||0;
+  const abonosEfectivoHoy=porMetodoAbonos['Efectivo']||0;
+  const efectivoHoy=ventasEfectivoHoy+abonosEfectivoHoy;
+
   const transferenciaDetalle={};
   Object.keys(porMetodo).filter(k=>k.startsWith('Transferencia')).forEach(k=>{transferenciaDetalle[k]=porMetodo[k];});
   const transferenciaHoy=Object.values(transferenciaDetalle).reduce((s,x)=>s+x,0);
   const tarjetaHoy=(porMetodo['Tarjeta Débito']||0)+(porMetodo['Tarjeta Crédito']||0);
-  const creditoHoy=porMetodo['Crédito / Cuotas']||0;
+  const creditoHoy=porMetodoVentas['Crédito / Cuotas']||0; // nuevo crédito de financiera otorgado hoy (aún no cobrado)
+  const creditoDirectoHoy=porMetodoVentas['Crédito Directo']||0; // nuevo fiado directo otorgado hoy (aún no cobrado)
   const gastosDelDia=DB.gastos.filter(g=>g.fecha===fecha);
   const gastosHoy=gastosDelDia.reduce((s,g)=>s+g.monto,0);
-  const cobrosCarteraDelDia=DB.cuentasPorCobrar.filter(c=>c.estado==='Cobrado'&&c.fechaCobro===fecha);
-  const cobrosCarteraHoy=cobrosCarteraDelDia.reduce((s,c)=>s+c.monto,0);
   const cxcGeneradasHoy=DB.cuentasPorCobrar.filter(c=>c.fechaVenta===fecha);
-  const netoCajaHoy=efectivoHoy+cobrosCarteraHoy-gastosHoy;
+  // netoCajaHoy: efectivoHoy ya incluye tanto ventas en efectivo como abonos en efectivo de hoy — no se suma dos veces.
+  const netoCajaHoy=efectivoHoy-gastosHoy;
+  const totalGeneralHoy=efectivoHoy+transferenciaHoy+tarjetaHoy-gastosHoy;
   const gananciaHoy=hoy.reduce((s,v)=>s+v.items.reduce((ss,i)=>{const costo=(i.costo!==undefined&&i.costo!==null)?i.costo:(DB.productos.find(x=>x.id===i.prodId)?.costo||0);return ss+(i.precio-costo)*i.qty;},0),0);
   const cajaPrincipal=cajaPrincipalActual();
-  return {fecha,hoy,total,porMetodo,efectivoHoy,transferenciaDetalle,transferenciaHoy,tarjetaHoy,creditoHoy,gastosDelDia,gastosHoy,cobrosCarteraDelDia,cobrosCarteraHoy,cxcGeneradasHoy,netoCajaHoy,gananciaHoy,cajaPrincipal};
+  return {fecha,hoy,total,porMetodo,porMetodoVentas,porMetodoAbonos,ventasEfectivoHoy,abonosEfectivoHoy,efectivoHoy,transferenciaDetalle,transferenciaHoy,tarjetaHoy,creditoHoy,creditoDirectoHoy,gastosDelDia,gastosHoy,abonosHoy,cobrosCarteraHoy,abonosDirectoHoy,abonosFinancieraHoy,cxcGeneradasHoy,netoCajaHoy,totalGeneralHoy,gananciaHoy,cajaPrincipal};
 }
 function renderCierre(){
   const fecha=document.getElementById('cierre-fecha').value||today();
@@ -1932,11 +2058,11 @@ function renderCierre(){
   const d=calcularDatosCierre(fecha);
 
   document.getElementById('kpi-cierre').innerHTML=`
-    <div class="kpi-card kpi-green"><div class="kpi-label">💵 Efectivo Hoy</div><div class="kpi-val">${fmt(d.efectivoHoy)}</div><div class="kpi-sub">ventas pagadas en cash</div></div>
-    <div class="kpi-card kpi-blue"><div class="kpi-label">🏦 Transferencia Hoy</div><div class="kpi-val">${fmt(d.transferenciaHoy)}</div><div class="kpi-sub">no ingresa a caja física</div></div>
-    <div class="kpi-card kpi-blue"><div class="kpi-label">💳 Tarjeta Hoy</div><div class="kpi-val">${fmt(d.tarjetaHoy)}</div><div class="kpi-sub">no ingresa a caja física</div></div>
+    <div class="kpi-card kpi-green"><div class="kpi-label">💵 Efectivo Hoy</div><div class="kpi-val">${fmt(d.efectivoHoy)}</div><div class="kpi-sub">ventas + abonos en efectivo</div></div>
+    <div class="kpi-card kpi-blue"><div class="kpi-label">🏦 Transferencia Hoy</div><div class="kpi-val">${fmt(d.transferenciaHoy)}</div><div class="kpi-sub">ventas + abonos, no física</div></div>
+    <div class="kpi-card kpi-blue"><div class="kpi-label">💳 Tarjeta Hoy</div><div class="kpi-val">${fmt(d.tarjetaHoy)}</div><div class="kpi-sub">ventas + abonos, no física</div></div>
     <div class="kpi-card kpi-red"><div class="kpi-label">💸 Gastos Hoy</div><div class="kpi-val">${fmt(d.gastosHoy)}</div><div class="kpi-sub">retirado de caja</div></div>
-    <div class="kpi-card kpi-green"><div class="kpi-label">💰 Caja Principal</div><div class="kpi-val">${fmt(d.cajaPrincipal)}</div><div class="kpi-sub">solo efectivo + cartera cobrada</div></div>`;
+    <div class="kpi-card kpi-green"><div class="kpi-label">💰 Caja Principal</div><div class="kpi-val">${fmt(d.cajaPrincipal)}</div><div class="kpi-sub">solo efectivo histórico</div></div>`;
 
   const metodosOrden=Object.keys(d.porMetodo).sort((a,b)=>d.porMetodo[b]-d.porMetodo[a]);
   document.getElementById('lista-metodos-cierre').innerHTML=metodosOrden.length?metodosOrden.map(m=>{
@@ -1946,7 +2072,7 @@ function renderCierre(){
       <div class="metodo-icon" style="background:${meta.color}22;">${meta.icon}</div>
       <div class="metodo-info">
         <div class="metodo-nombre"><span>${m}</span><span class="mono">${fmt(d.porMetodo[m])}</span></div>
-        <div class="metodo-bar-bg"><div class="metodo-bar" style="width:${pct.toFixed(0)}%;background:${meta.color};"></div></div>
+        <div class="metodo-bar-bg"><div class="metodo-bar" style="width:${Math.min(pct,100).toFixed(0)}%;background:${meta.color};"></div></div>
       </div>
     </div>`;
   }).join(''):'<div class="empty-mini">Sin ventas registradas este día</div>';
@@ -1957,23 +2083,31 @@ function renderCierre(){
   `).join('')||'<tr class="empty-row"><td colspan="4">Sin gastos registrados este día</td></tr>';
 
   document.getElementById('resumen-fecha-label').textContent=dFecha.toLocaleDateString('es-CO',{day:'2-digit',month:'long',year:'numeric'});
-  const totalGeneralHoy=d.efectivoHoy+d.transferenciaHoy+d.tarjetaHoy+d.cobrosCarteraHoy-d.gastosHoy;
   document.getElementById('resumen-cierre').innerHTML=`
     <div class="resumen-seccion">
       <div class="resumen-seccion-label">🏦 Caja Física</div>
-      <div class="resumen-linea pos"><span>Ventas en Efectivo</span><span class="mono">+${fmt(d.efectivoHoy)}</span></div>
-      <div class="resumen-linea pos"><span>Cobros de Cartera (CxC pagadas hoy)</span><span class="mono">+${fmt(d.cobrosCarteraHoy)}</span></div>
+      <div class="resumen-linea pos"><span>Ventas en Efectivo</span><span class="mono">+${fmt(d.ventasEfectivoHoy)}</span></div>
+      <div class="resumen-linea pos"><span>Abonos de Cartera en Efectivo</span><span class="mono">+${fmt(d.abonosEfectivoHoy)}</span></div>
       <div class="resumen-linea neg"><span>Gastos de Empresa</span><span class="mono">-${fmt(d.gastosHoy)}</span></div>
     </div>
     <div class="resumen-total"><span>= Neto en Caja Hoy</span><span class="mono">${fmt(d.netoCajaHoy)}</span></div>
     <div class="resumen-seccion">
       <div class="resumen-seccion-label">💳 Otros Medios (no física, pero sí es plata del negocio)</div>
-      <div class="resumen-linea pos"><span>Transferencia</span><span class="mono">+${fmt(d.transferenciaHoy)}</span></div>
-      <div class="resumen-linea pos"><span>Tarjeta</span><span class="mono">+${fmt(d.tarjetaHoy)}</span></div>
-      <div class="resumen-linea"><span>A Crédito / Cuentas por Cobrar (aún no cobrado)</span><span class="mono">${fmt(d.creditoHoy)}</span></div>
+      <div class="resumen-linea pos"><span>Transferencia (ventas + abonos)</span><span class="mono">+${fmt(d.transferenciaHoy)}</span></div>
+      <div class="resumen-linea pos"><span>Tarjeta (ventas + abonos)</span><span class="mono">+${fmt(d.tarjetaHoy)}</span></div>
+    </div>
+    <div class="resumen-seccion">
+      <div class="resumen-seccion-label">📋 Crédito Nuevo Otorgado Hoy (aún no cobrado)</div>
+      <div class="resumen-linea"><span>A Financieras (Crédito / Cuotas)</span><span class="mono">${fmt(d.creditoHoy)}</span></div>
+      <div class="resumen-linea"><span>Crédito Directo (fiado propio)</span><span class="mono">${fmt(d.creditoDirectoHoy)}</span></div>
+    </div>
+    <div class="resumen-seccion">
+      <div class="resumen-seccion-label">📥 Abonos de Cartera Cobrados Hoy <span style="font-weight:400;font-size:11px;">(ya incluidos arriba por método)</span></div>
+      <div class="resumen-linea"><span>De Financieras</span><span class="mono">${fmt(d.abonosFinancieraHoy)}</span></div>
+      <div class="resumen-linea"><span>De Crédito Directo</span><span class="mono">${fmt(d.abonosDirectoHoy)}</span></div>
     </div>
   `;
-  document.getElementById('resumen-cierre').insertAdjacentHTML('beforeend',`<div class="resumen-caja resumen-total-general"><div class="resumen-caja-label"><span class="rail-icon">💼</span>Total General del Negocio Hoy</div><span class="mono">${fmt(totalGeneralHoy)}</span></div>`);
+  document.getElementById('resumen-cierre').insertAdjacentHTML('beforeend',`<div class="resumen-caja resumen-total-general"><div class="resumen-caja-label"><span class="rail-icon">💼</span>Total General del Negocio Hoy</div><span class="mono">${fmt(d.totalGeneralHoy)}</span></div>`);
   document.getElementById('resumen-cierre').insertAdjacentHTML('beforeend',`<div class="resumen-caja"><div class="resumen-caja-label"><span class="rail-icon">🔐</span>Saldo en Caja Principal (solo efectivo físico)</div><span class="mono">${fmt(d.cajaPrincipal)}</span></div>`);
 
   document.getElementById('tabla-cierre-ventas').innerHTML=d.hoy.map(v=>`<tr>
@@ -2060,18 +2194,29 @@ function generarPDFCierre(d){
   }
 
   seccion('CAJA FÍSICA');
-  linea('Ventas en Efectivo',fmt(d.efectivoHoy));
-  linea('Cobros de Cartera (CxC pagadas hoy)',fmt(d.cobrosCarteraHoy));
+  linea('Ventas en Efectivo',fmt(d.ventasEfectivoHoy));
+  linea('Abonos de Cartera en Efectivo',fmt(d.abonosEfectivoHoy));
   linea('(–) Gastos de Empresa','-'+fmt(d.gastosHoy),{color:[181,69,63]});
   linea('= NETO EN CAJA HOY',fmt(d.netoCajaHoy),{bold:true});
   y+=3;
 
-  seccion('OTROS MEDIOS DE PAGO (no física)');
+  seccion('OTROS MEDIOS DE PAGO (no física, incluye ventas + abonos)');
   const bancos=Object.keys(d.transferenciaDetalle);
   if(bancos.length){bancos.forEach(k=>linea(k,fmt(d.transferenciaDetalle[k])));}
   else{linea('Transferencia',fmt(0));}
   linea('Tarjeta',fmt(d.tarjetaHoy));
-  linea('A Crédito / Cuotas (generado hoy)',fmt(d.creditoHoy));
+  linea('A Crédito / Cuotas — Financiera (generado hoy)',fmt(d.creditoHoy));
+  linea('A Crédito Directo — fiado propio (generado hoy)',fmt(d.creditoDirectoHoy));
+  y+=3;
+
+  seccion('ABONOS DE CARTERA RECIBIDOS HOY ('+d.abonosHoy.length+')');
+  if(d.abonosHoy.length){
+    d.abonosHoy.forEach(a=>{
+      const c=DB.cuentasPorCobrar.find(x=>x.id===a.cxcId);
+      const etiqueta=(c?c.cliente:'—')+' · '+a.metodo+' · '+(c&&c.esDirecto?'Crédito Directo':'Financiera: '+(c?c.financiera:'—'));
+      linea(etiqueta,fmt(a.monto));
+    });
+  } else { vacio('No se recibieron abonos de cartera en este día'); }
   y+=3;
 
   seccion('GASTOS DE EMPRESA ('+d.gastosDelDia.length+')');
@@ -2080,16 +2225,19 @@ function generarPDFCierre(d){
   y+=3;
 
   seccion('CUENTAS POR COBRAR GENERADAS HOY ('+d.cxcGeneradasHoy.length+')');
-  if(d.cxcGeneradasHoy.length){d.cxcGeneradasHoy.forEach(c=>linea(c.cliente+(c.estado==='Cobrado'?' — ya cobrada':' — pendiente'),fmt(c.monto)));}
+  if(d.cxcGeneradasHoy.length){d.cxcGeneradasHoy.forEach(c=>{
+    const saldo=saldoPendienteCXC(c);
+    const tipo=c.esDirecto?'Crédito Directo':'Financiera: '+c.financiera;
+    linea(c.cliente+' — '+tipo+(saldo<=0?' (ya pagada)':' (pendiente)'),fmt(c.monto));
+  });}
   else{vacio('No se generaron cuentas por cobrar en este día');}
   y+=6;
 
-  const totalGeneralHoy=d.efectivoHoy+d.transferenciaHoy+d.tarjetaHoy+d.cobrosCarteraHoy-d.gastosHoy;
   if(y>255){doc.addPage();y=20;}
   doc.setFillColor(232,224,214);doc.rect(20,y-6,170,15,'F');
   doc.setFontSize(11);doc.setFont('helvetica','bold');doc.setTextColor(40,30,20);
   doc.text('TOTAL GENERAL DEL NEGOCIO HOY',24,y+3);
-  doc.setFontSize(14);doc.text(fmt(totalGeneralHoy),186,y+3,{align:'right'});
+  doc.setFontSize(14);doc.text(fmt(d.totalGeneralHoy),186,y+3,{align:'right'});
   y+=20;
 
   if(y>255){doc.addPage();y=20;}
@@ -2202,64 +2350,50 @@ function guardarCliente(){
 // CUENTAS POR COBRAR (Crédito → Financieras)
 // ============================================================
 function renderCXC(){
+  const fTipo=document.getElementById('filtro-cxc-tipo')?.value||'';
   const fFin=document.getElementById('filtro-cxc-financiera')?.value||'';
   const fEst=document.getElementById('filtro-cxc-estado')?.value||'';
-  const f=DB.cuentasPorCobrar.filter(c=>(!fFin||c.financiera===fFin)&&(!fEst||c.estado===fEst));
+  const f=DB.cuentasPorCobrar.filter(c=>
+    (!fTipo || (fTipo==='directo'?c.esDirecto:!c.esDirecto)) &&
+    (!fFin||c.financiera===fFin) &&
+    (!fEst||estadoCXC(c)===fEst)
+  );
 
-  const pendienteTotal=DB.cuentasPorCobrar.filter(c=>c.estado==='Pendiente').reduce((s,c)=>s+c.monto,0);
-  const cobradoTotal=DB.cuentasPorCobrar.filter(c=>c.estado==='Cobrado').reduce((s,c)=>s+c.monto,0);
+  const pendienteFinanciera=DB.cuentasPorCobrar.filter(c=>!c.esDirecto).reduce((s,c)=>s+saldoPendienteCXC(c),0);
+  const pendienteDirecto=DB.cuentasPorCobrar.filter(c=>c.esDirecto).reduce((s,c)=>s+saldoPendienteCXC(c),0);
+  const abonadoTotal=DB.abonosCxc.reduce((s,a)=>s+a.monto,0);
   const coloresFin=['kpi-blue','kpi-red','kpi-yellow','kpi-green','kpi-blue','kpi-red'];
   const cardsFin=FINANCIERAS.map((fin,i)=>{
-    const pend=DB.cuentasPorCobrar.filter(c=>c.estado==='Pendiente'&&c.financiera===fin).reduce((s,c)=>s+c.monto,0);
+    const pend=DB.cuentasPorCobrar.filter(c=>!c.esDirecto&&c.financiera===fin).reduce((s,c)=>s+saldoPendienteCXC(c),0);
     const clase=coloresFin[i%coloresFin.length];
     return `<div class="kpi-card ${clase}"><div class="kpi-label">Pendiente ${fin}</div><div class="kpi-val">${fmt(pend)}</div><div class="kpi-sub">saldo con esta financiera</div></div>`;
   }).join('');
   document.getElementById('kpi-cxc').innerHTML=`
-    <div class="kpi-card kpi-yellow"><div class="kpi-label">Total Pendiente</div><div class="kpi-val">${fmt(pendienteTotal)}</div><div class="kpi-sub">por cobrar a financieras</div></div>
-    <div class="kpi-card kpi-green"><div class="kpi-label">Total Cobrado (histórico)</div><div class="kpi-val">${fmt(cobradoTotal)}</div><div class="kpi-sub">ya ingresado a caja</div></div>
+    <div class="kpi-card kpi-yellow"><div class="kpi-label">Pendiente Financieras</div><div class="kpi-val">${fmt(pendienteFinanciera)}</div><div class="kpi-sub">por cobrar a financieras</div></div>
+    <div class="kpi-card kpi-yellow"><div class="kpi-label">🏠 Pendiente Crédito Directo</div><div class="kpi-val">${fmt(pendienteDirecto)}</div><div class="kpi-sub">fiado directo con clientes</div></div>
+    <div class="kpi-card kpi-green"><div class="kpi-label">Total Abonado (histórico)</div><div class="kpi-val">${fmt(abonadoTotal)}</div><div class="kpi-sub">ya ingresado al negocio</div></div>
     ${cardsFin}`;
 
-  document.getElementById('tabla-cxc').innerHTML=[...f].reverse().map(c=>`<tr>
+  document.getElementById('tabla-cxc').innerHTML=[...f].reverse().map(c=>{
+    const saldo=saldoPendienteCXC(c);
+    const estado=estadoCXC(c);
+    const tieneAbonos=abonosDeCXC(c.id).length>0;
+    const estadoBadge=estado==='Pagado'?'badge-green':estado==='Parcial'?'badge-sky':'badge-yellow';
+    return `<tr>
     <td><span class="badge badge-sky">${c.id}</span></td>
     <td>${c.ventaId}</td>
     <td style="font-weight:600">${c.cliente}</td>
-    <td><span class="badge badge-sky">${c.financiera}</span></td>
-    <td style="font-weight:800;color:var(--accent)">${fmt(c.monto)}</td>
+    <td>${c.esDirecto?'<span class="badge badge-yellow">🏠 Crédito Directo</span>':`<span class="badge badge-sky">🏦 ${c.financiera}</span>`}</td>
+    <td style="color:var(--text2)">${fmt(c.monto)}</td>
+    <td style="font-weight:800;color:var(--accent)">${fmt(saldo)}</td>
     <td style="font-size:12px">${c.fechaVenta}</td>
-    <td><span class="badge ${c.estado==='Pendiente'?'badge-yellow':'badge-green'}">${c.estado}</span></td>
-    <td style="font-size:12px">${c.fechaCobro||'—'}</td>
+    <td><span class="badge ${estadoBadge}">${estado}</span></td>
     <td><div class="action-btns">
       <button class="btn btn-outline btn-sm" onclick="verFactura('${c.ventaId}')" title="Ver factura">🧾</button>
-      ${c.estado==='Pendiente'?`<button class="btn btn-success btn-sm" onclick="pedirCobroCXC('${c.id}')">✅ Marcar Cobrado</button>`:''}
-    </div></td></tr>`).join('')||'<tr class="empty-row"><td colspan="9">Sin cuentas por cobrar registradas</td></tr>';
-}
-
-function pedirCobroCXC(id){
-  const c=DB.cuentasPorCobrar.find(x=>x.id===id);
-  if(!c)return;
-  cxcACobrarId=id;
-  document.getElementById('confirm-cobro-msg').textContent=`¿Marcar como cobrado el saldo de ${fmt(c.monto)}?`;
-  document.getElementById('confirm-cobro-sub').textContent=`Venta ${c.ventaId} · Cliente: ${c.cliente} · Financiera: ${c.financiera}. El monto ingresará formalmente a la Caja Principal con fecha de hoy.`;
-  abrirModal('modal-confirm-cobro');
-}
-
-function confirmarCobroCXC(){
-  if(!cxcACobrarId)return;
-  const c=DB.cuentasPorCobrar.find(x=>x.id===cxcACobrarId);
-  if(!c){cerrarModal('modal-confirm-cobro');return;}
-  c.estado='Cobrado';
-  c.fechaCobro=today();
-  cxcACobrarId=null;
-  cerrarModal('modal-confirm-cobro');
-  toast(`💰 Cobro registrado — ${fmt(c.monto)} ingresó a Caja Principal`);
-  renderCXC();
-  saveState();
-  const active=document.querySelector('.page.active');
-  if(active){
-    const pid=active.id.replace('page-','');
-    const acts={dashboard:renderDashboard,cierre:renderCierre};
-    if(acts[pid])acts[pid]();
-  }
+      ${tieneAbonos?`<button class="btn btn-outline btn-sm" onclick="verHistorialAbonos('${c.id}')" title="Ver abonos">📜</button>`:''}
+      ${saldo>0?`<button class="btn btn-success btn-sm" onclick="pedirAbonoCXC('${c.id}')">💰 Abonar</button>`:''}
+    </div></td></tr>`;
+  }).join('')||'<tr class="empty-row"><td colspan="9">Sin cuentas por cobrar registradas</td></tr>';
 }
 
 // ============================================================
@@ -2314,6 +2448,7 @@ async function sha256Hex(texto){
   return Array.from(new Uint8Array(hashBuf)).map(b=>b.toString(16).padStart(2,'0')).join('');
 }
 let currentRole = null;
+let currentUsername = null;
 
 // Aplica las restricciones visuales según el rol de la sesión activa
 function aplicarPermisosRol(){
@@ -2433,6 +2568,7 @@ async function attemptLogin(){
     document.getElementById('login-screen').style.display = 'none';
     document.getElementById('app-root').style.display = 'flex';
     currentRole = usuario.role;
+    currentUsername = u;
     document.getElementById('user-badge').textContent = (usuario.role==='admin'?'👑 ':'🛒 ') + u;
     try{ localStorage.setItem('ksm_session', u); }catch(e){}
     if(!appStarted){ appStarted = true; init(); }
@@ -2449,6 +2585,7 @@ function logout(){
   document.getElementById('login-user').value = '';
   document.getElementById('login-pass').value = '';
   currentRole = null;
+  currentUsername = null;
   try{ localStorage.removeItem('ksm_session'); }catch(e){}
   toggleSidebar(false);
 }
@@ -2468,6 +2605,7 @@ function logout(){
       document.getElementById('login-screen').style.display = 'none';
       document.getElementById('app-root').style.display = 'flex';
       currentRole = usuarioGuardado.role;
+      currentUsername = sesionGuardada;
       document.getElementById('user-badge').textContent = (usuarioGuardado.role==='admin'?'👑 ':'🛒 ') + sesionGuardada;
       if(!appStarted){ appStarted = true; init(); }
       aplicarPermisosRol();
