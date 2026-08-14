@@ -737,7 +737,7 @@
       </div>
       <div class="form-group"><label>Precio de Venta ($)</label><input type="text" inputmode="numeric" id="p-precio" placeholder="0" oninput="formatearInputDinero(this)"></div>
       <div class="form-group"><label>Costo / Precio Compra ($)</label><input type="text" inputmode="numeric" id="p-costo" placeholder="0" oninput="formatearInputDinero(this)"></div>
-      <div class="form-group"><label>Stock Inicial</label><input type="number" id="p-stock" placeholder="0" min="0"></div>
+      <div class="form-group"><label>Stock Inicial <span style="font-weight:400;color:var(--text2);font-size:11px;">(solo al crear — luego se ajusta desde Inventario)</span></label><input type="number" id="p-stock" placeholder="0" min="0"></div>
       <div class="form-group"><label>Stock Mínimo (Alerta)</label><input type="number" id="p-min" value="2" min="0"></div>
       <div class="form-group full"><label>Descripción</label><input type="text" id="p-desc" placeholder="Descripción del producto..."></div>
     </div>
@@ -900,8 +900,12 @@ const CATALOGO_PERMISOS = [
   { grupo:'Acciones sobre Ventas', items:[
     { key:'ventas_eliminar', label:'Anular / Eliminar Ventas', desc:'Eliminar una factura ya registrada (el stock se restaura automáticamente).' },
   ]},
+  { grupo:'Acciones sobre Clientes y Cartera', items:[
+    { key:'clientes_editar', label:'Agregar / Editar Clientes', desc:'Crear o modificar la base de datos de clientes. Requiere también "Ver Clientes".' },
+    { key:'cxc_cobrar', label:'Registrar Abonos a Cuentas por Cobrar', desc:'Cobrar cartera y registrar pagos parciales. Requiere también "Ver Cuentas por Cobrar".' },
+  ]},
   { grupo:'Acciones de Cierre de Caja', items:[
-    { key:'cierre_gastos', label:'Registrar Gastos de Empresa', desc:'Descontar dinero de Caja Principal por gastos del negocio.' },
+    { key:'cierre_gastos', label:'Registrar / Eliminar Gastos de Empresa', desc:'Descontar dinero de Caja Principal por gastos del negocio, o revertir un gasto registrado.' },
     { key:'cierre_cerrar', label:'Cerrar Caja del Día', desc:'Ejecutar el cierre formal de caja y generar el PDF de desglose.' },
   ]},
 ];
@@ -910,6 +914,7 @@ const PERMISOS_DEFAULT_VENDEDOR = {
   pg_dashboard:true, pg_facturacion:true, pg_productos:true, pg_inventario:true,
   pg_ventas:false, pg_clientes:false, pg_cxc:false, pg_cierre:false, pg_reportes:false,
   productos_editar:false, inventario_editar:false, ventas_eliminar:false,
+  clientes_editar:false, cxc_cobrar:false,
   cierre_gastos:false, cierre_cerrar:false
 };
 // Qué permiso controla el acceso a cada página del menú (la página 'permisos' no aplica: es exclusiva del admin)
@@ -1017,7 +1022,7 @@ async function saveState(){
     await Promise.all([
       intentar('movimientos', syncTablaCompleta('movimientos', DB.movimientos.map(m=>({id:m.id, fecha:m.fecha, hora:m.hora, producto_id:(m.prodId && DB.productos.some(p=>p.id===m.prodId)) ? m.prodId : null, producto_nombre:m.producto, tipo:m.tipo, cantidad:m.cantidad, referencia:m.ref||null, usuario:m.user||null, proveedor:m.proveedor||null, costo_unitario:m.costoUnitario||null})), 'id')),
       intentar('gastos', syncTablaCompleta('gastos', DB.gastos.map(g=>({id:g.id, descripcion:g.descripcion, monto:g.monto, fecha:g.fecha, hora:g.hora})), 'id')),
-      intentar('cierres', syncTablaCompleta('cierres', DB.cierres.map(c=>({id:c.id, fecha:c.fecha, cerrado_en:c.cerradoEn||null, tipo:c.tipo, efectivo:c.efectivo||0, transferencia:c.transferencia||0, tarjeta:c.tarjeta||0, credito:c.credito||0, gastos:c.gastos||0, cobros_cartera:c.cobrosCartera||0, neto_caja:c.netoCaja||0, caja_principal:c.cajaPrincipal||0, ventas_count:c.ventasCount||0, total_ventas:c.totalVentas||0})), 'id')),
+      intentar('cierres', syncTablaCompleta('cierres', DB.cierres.map(c=>({id:c.id, fecha:c.fecha, cerrado_en:c.cerradoEn||null, tipo:c.tipo, efectivo:c.efectivo||0, transferencia:c.transferencia||0, tarjeta:c.tarjeta||0, credito:c.credito||0, gastos:c.gastos||0, cobros_cartera:c.cobrosCartera||0, neto_caja:c.netoCaja||0, caja_principal:c.cajaPrincipal||0, ventas_count:c.ventasCount||0, total_ventas:c.totalVentas||0, detalle_json:c.detalle||null})), 'id')),
       intentar('permisos_vendedor', savePermisos()),
       intentar('config', supabaseClient.from('config').update({ factura_counter: DB.facturaCounter }).eq('id',1)),
     ]);
@@ -1066,7 +1071,7 @@ async function loadState(){
       DB.cuentasPorCobrar = (cxc.data||[]).map(c=>({ id:c.id, ventaId:c.venta_id, cliente:c.cliente_nombre, financiera:c.financiera, esDirecto:!!c.es_directo, monto:Number(c.monto), fechaVenta:c.fecha_venta, estado:c.estado, fechaCobro:c.fecha_cobro }));
       DB.abonosCxc = (abo.data||[]).map(a=>({ id:a.id, cxcId:a.cxc_id, monto:Number(a.monto), metodo:a.metodo, fecha:a.fecha, hora:a.hora, usuario:a.usuario }));
       DB.gastos = (gas.data||[]).map(g=>({ id:g.id, descripcion:g.descripcion, monto:Number(g.monto), fecha:g.fecha, hora:g.hora }));
-      DB.cierres = (cie.data||[]).map(c=>({ id:c.id, fecha:c.fecha, cerradoEn:c.cerrado_en, tipo:c.tipo, efectivo:Number(c.efectivo), transferencia:Number(c.transferencia), tarjeta:Number(c.tarjeta), credito:Number(c.credito), gastos:Number(c.gastos), cobrosCartera:Number(c.cobros_cartera), netoCaja:Number(c.neto_caja), cajaPrincipal:Number(c.caja_principal), ventasCount:c.ventas_count, totalVentas:Number(c.total_ventas) }));
+      DB.cierres = (cie.data||[]).map(c=>({ id:c.id, fecha:c.fecha, cerradoEn:c.cerrado_en, tipo:c.tipo, efectivo:Number(c.efectivo), transferencia:Number(c.transferencia), tarjeta:Number(c.tarjeta), credito:Number(c.credito), gastos:Number(c.gastos), cobrosCartera:Number(c.cobros_cartera), netoCaja:Number(c.neto_caja), cajaPrincipal:Number(c.caja_principal), ventasCount:c.ventas_count, totalVentas:Number(c.total_ventas), detalle:c.detalle_json||null }));
 
       const permisosObj = {};
       (perm.data||[]).forEach(p=>{ permisosObj[p.clave] = p.activo; });
@@ -1133,6 +1138,13 @@ function goTo(page){
 // UTILS
 // ============================================================
 function fmt(n){return '$'+Math.round(n).toLocaleString('es-CO');}
+// Escapa texto libre (nombres, notas, descripciones) antes de insertarlo en innerHTML,
+// para que un dato escrito por cualquier usuario (ej. un vendedor) nunca se interprete
+// como HTML/script cuando otro usuario (ej. el admin) lo vea en pantalla.
+function esc(s){
+  if(s===null||s===undefined)return '';
+  return String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
 // Fecha LOCAL (no UTC) en formato YYYY-MM-DD para un Date cualquiera.
 // Usar siempre esta función (o today() para "ahora") en vez de .toISOString().split('T')[0],
 // que devuelve la fecha en UTC y desfasa el día en horas de la noche (bug real, ya corregido).
@@ -1304,9 +1316,9 @@ function renderProductos(){
     const margen=p.precio>0?Math.round((p.precio-p.costo)/p.precio*100):0;
     const est=p.stock<=0?'<span class="badge badge-red">Sin Stock</span>':p.stock<=p.min?'<span class="badge badge-yellow">Stock Bajo</span>':'<span class="badge badge-green">Disponible</span>';
     return `<tr>
-      <td><code style="color:var(--accent);font-size:11px;background:rgba(214,31,38,0.08);padding:2px 6px;border-radius:4px">${p.codigo}</code></td>
-      <td><div style="font-weight:700">${p.nombre}</div><div style="font-size:11px;color:var(--text2);margin-top:1px">${p.desc}</div></td>
-      <td><span class="badge badge-sky">${p.cat}</span></td>
+      <td><code style="color:var(--accent);font-size:11px;background:rgba(214,31,38,0.08);padding:2px 6px;border-radius:4px">${esc(p.codigo)}</code></td>
+      <td><div style="font-weight:700">${esc(p.nombre)}</div><div style="font-size:11px;color:var(--text2);margin-top:1px">${esc(p.desc)}</div></td>
+      <td><span class="badge badge-sky">${esc(p.cat)}</span></td>
       <td style="font-weight:800;color:var(--accent)">${fmt(p.precio)}</td>
       <td style="color:var(--text2)">${fmt(p.costo)}</td>
       <td><span style="color:${margen<0?'var(--red)':margen>=30?'var(--green)':'var(--yellow)'};font-weight:700">${margen}%</span></td>
@@ -1335,8 +1347,8 @@ function onCambioCategoriaSelect(){
   if(sel.value==='__nueva__'){wrap.style.display='flex';document.getElementById('p-cat-nueva').focus();}
   else{wrap.style.display='none';document.getElementById('p-cat-nueva').value='';}
 }
-function abrirModalProducto(){if(currentRole==='vendedor'&&!puede('productos_editar')){toast('No tienes permiso para agregar productos',true);return;}editProdIdx=null;document.getElementById('modal-prod-title').textContent='📦 Nuevo Producto';['p-codigo','p-nombre','p-precio','p-costo','p-stock','p-desc'].forEach(id=>document.getElementById(id).value='');document.getElementById('p-min').value=2;poblarSelectCategorias('');abrirModal('modal-producto');}
-function editarProducto(idx){if(currentRole==='vendedor'&&!puede('productos_editar')){toast('No tienes permiso para editar productos',true);return;}editProdIdx=idx;const p=DB.productos[idx];document.getElementById('modal-prod-title').textContent='✏️ Editar Producto';document.getElementById('p-codigo').value=p.codigo;document.getElementById('p-nombre').value=p.nombre;poblarSelectCategorias(p.cat);ponerValorDinero('p-precio',p.precio);ponerValorDinero('p-costo',p.costo);document.getElementById('p-stock').value=p.stock;document.getElementById('p-min').value=p.min;document.getElementById('p-desc').value=p.desc;abrirModal('modal-producto');}
+function abrirModalProducto(){if(currentRole==='vendedor'&&!puede('productos_editar')){toast('No tienes permiso para agregar productos',true);return;}editProdIdx=null;document.getElementById('modal-prod-title').textContent='📦 Nuevo Producto';['p-codigo','p-nombre','p-precio','p-costo','p-stock','p-desc'].forEach(id=>document.getElementById(id).value='');document.getElementById('p-min').value=2;const sInp=document.getElementById('p-stock');sInp.readOnly=false;sInp.title='';poblarSelectCategorias('');abrirModal('modal-producto');}
+function editarProducto(idx){if(currentRole==='vendedor'&&!puede('productos_editar')){toast('No tienes permiso para editar productos',true);return;}editProdIdx=idx;const p=DB.productos[idx];document.getElementById('modal-prod-title').textContent='✏️ Editar Producto';document.getElementById('p-codigo').value=p.codigo;document.getElementById('p-nombre').value=p.nombre;poblarSelectCategorias(p.cat);ponerValorDinero('p-precio',p.precio);ponerValorDinero('p-costo',p.costo);document.getElementById('p-stock').value=p.stock;const sInp=document.getElementById('p-stock');sInp.readOnly=true;sInp.title='El stock no se edita aquí — usa "Ingresar Mercancía" en Inventario para que quede registrado en el historial';document.getElementById('p-min').value=p.min;document.getElementById('p-desc').value=p.desc;abrirModal('modal-producto');}
 function guardarProducto(){if(currentRole==='vendedor'&&!puede('productos_editar')){toast('No tienes permiso para modificar productos',true);return;}
   const nombre=document.getElementById('p-nombre').value.trim();
   if(!nombre){toast('El nombre es obligatorio',true);return;}
@@ -1351,7 +1363,10 @@ function guardarProducto(){if(currentRole==='vendedor'&&!puede('productos_editar
   }
   const precio=numeroDesdeInput('p-precio'), costo=numeroDesdeInput('p-costo');
   if(precio<0||costo<0){toast('El precio y el costo no pueden ser negativos',true);return;}
-  const prod={id:editProdIdx!==null?DB.productos[editProdIdx].id:'P'+Date.now(),codigo:document.getElementById('p-codigo').value||'KSM-'+Date.now(),nombre,cat,precio,costo,stock:parseInt(document.getElementById('p-stock').value)||0,min:parseInt(document.getElementById('p-min').value)||2,desc:document.getElementById('p-desc').value};
+  // El stock NUNCA se toma del input al editar (aunque alguien fuerce el campo por consola) —
+  // todo cambio de cantidad debe pasar por "Ingresar Mercancía" para quedar en el historial.
+  const stockFinal=editProdIdx!==null?DB.productos[editProdIdx].stock:(parseInt(document.getElementById('p-stock').value)||0);
+  const prod={id:editProdIdx!==null?DB.productos[editProdIdx].id:'P'+Date.now(),codigo:document.getElementById('p-codigo').value||'KSM-'+Date.now(),nombre,cat,precio,costo,stock:stockFinal,min:parseInt(document.getElementById('p-min').value)||2,desc:document.getElementById('p-desc').value};
   if(editProdIdx!==null)DB.productos[editProdIdx]=prod;else DB.productos.push(prod);
   cerrarModal('modal-producto');renderProductos();refreshSelectores();
   if(precio>0&&precio<costo)toast(`⚠️ ${nombre} guardado, pero el precio de venta quedó por debajo del costo`,true);
@@ -1399,23 +1414,23 @@ function renderInventario(){
     <div class="kpi-card kpi-red"><div class="kpi-label"># Entradas</div><div class="kpi-val">${entradas.length}</div><div class="kpi-sub">registros</div></div>`;
   document.getElementById('tabla-entradas').innerHTML=[...entradas].reverse().map(m=>`<tr>
     <td>${m.fecha} <span style="color:var(--text2)">${m.hora}</span></td>
-    <td style="font-weight:600">${m.producto}</td>
-    <td><span class="badge badge-green">${m.tipo}</span></td>
+    <td style="font-weight:600">${esc(m.producto)}</td>
+    <td><span class="badge badge-green">${esc(m.tipo)}</span></td>
     <td style="font-weight:800">${m.cantidad}</td>
     <td style="color:var(--text2)">${m.costoUnitario?fmt(m.costoUnitario):'-'}</td>
     <td style="color:var(--text2)">${m.costoUnitario?fmt(m.cantidad*m.costoUnitario):'-'}</td>
-    <td style="color:var(--text2)">${m.proveedor||'-'}</td>
-    <td style="color:var(--text2)">${m.ref||'-'}</td>
-    <td>${m.user}</td></tr>`).join('')||'<tr class="empty-row"><td colspan="9">Sin entradas de mercancía registradas</td></tr>';
+    <td style="color:var(--text2)">${esc(m.proveedor)||'-'}</td>
+    <td style="color:var(--text2)">${esc(m.ref)||'-'}</td>
+    <td>${esc(m.user)}</td></tr>`).join('')||'<tr class="empty-row"><td colspan="9">Sin entradas de mercancía registradas</td></tr>';
 
   // --- Pestaña 2: Movimientos (Todo) ---
   document.getElementById('tabla-movimientos').innerHTML=[...DB.movimientos].reverse().map(m=>`<tr>
     <td>${m.fecha} <span style="color:var(--text2)">${m.hora}</span></td>
-    <td style="font-weight:600">${m.producto}</td>
-    <td><span class="badge ${m.tipo.includes('negativo')||m.tipo==='Venta'?'badge-red':m.tipo.includes('Anulación')?'badge-yellow':'badge-green'}">${m.tipo}</span></td>
+    <td style="font-weight:600">${esc(m.producto)}</td>
+    <td><span class="badge ${m.tipo.includes('negativo')||m.tipo==='Venta'?'badge-red':m.tipo.includes('Anulación')?'badge-yellow':'badge-green'}">${esc(m.tipo)}</span></td>
     <td style="font-weight:800">${m.cantidad}</td>
-    <td style="color:var(--text2)">${m.proveedor?m.proveedor+(m.ref?' · '+m.ref:''):(m.ref||'-')}</td>
-    <td>${m.user}</td></tr>`).join('')||'<tr class="empty-row"><td colspan="6">Sin movimientos</td></tr>';
+    <td style="color:var(--text2)">${m.proveedor?esc(m.proveedor)+(m.ref?' · '+esc(m.ref):''):(esc(m.ref)||'-')}</td>
+    <td>${esc(m.user)}</td></tr>`).join('')||'<tr class="empty-row"><td colspan="6">Sin movimientos</td></tr>';
 }
 
 // ============================================================
@@ -1533,11 +1548,25 @@ function guardarIngreso(){
   const ref=document.getElementById('ing-ref').value.trim();
   if(!pid||qty<=0){toast('Selecciona un producto y una cantidad mayor a cero',true);return;}
   const p=DB.productos.find(x=>x.id===pid);
-  if(tipo.includes('negativo')){p.stock=Math.max(0,p.stock-qty);}else{p.stock+=qty;}
+  let costoActualizado=null;
+  if(tipo.includes('negativo')){
+    p.stock=Math.max(0,p.stock-qty);
+  } else {
+    // Costo Promedio Ponderado (CPP): en una Compra con costo unitario informado, el costo
+    // del catálogo se recalcula automáticamente (igual que lo haría cualquier ERP/contabilidad),
+    // en vez de quedar congelado en el costo anterior mientras el negocio compró más caro o más barato.
+    if(tipo==='Compra'&&costoUnitario>0){
+      const stockAnterior=p.stock;
+      const costoAnterior=p.costo||0;
+      p.costo=Math.round((stockAnterior*costoAnterior+qty*costoUnitario)/(stockAnterior+qty));
+      costoActualizado=p.costo;
+    }
+    p.stock+=qty;
+  }
   const now=new Date();
   DB.movimientos.push({id:'M'+Date.now()+'-'+Math.random().toString(36).slice(2,7),fecha:today(),hora:now.toTimeString().slice(0,5),producto:p.nombre,prodId:p.id,tipo,cantidad:qty,costoUnitario:costoUnitario||null,proveedor:proveedor||null,ref:ref||'-',user:'Admin'});
-  cerrarModal('modal-ingreso');renderInventario();refreshSelectores();
-  toast(`📥 ${tipo}: ${qty} uds de ${p.nombre}`);
+  cerrarModal('modal-ingreso');renderInventario();renderProductos();refreshSelectores();
+  toast(costoActualizado?`📥 ${tipo}: ${qty} uds de ${p.nombre} — costo promedio actualizado a ${fmt(costoActualizado)}`:`📥 ${tipo}: ${qty} uds de ${p.nombre}`);
   saveState();
 }
 
@@ -1556,7 +1585,7 @@ function buscarClientesFactura(){
   const res=DB.clientes.filter(c=>c.nombre.toLowerCase().includes(q)||(c.cedula||'').includes(q)).slice(0,8);
   let html='';
   if(res.length){
-    html+=res.map(c=>`<div class="client-search-item" onclick="seleccionarClienteFactura('${c.id}')"><div class="csi-name">${c.nombre}</div><div class="csi-meta">${c.cedula?'CC/NIT: '+c.cedula:'Sin cédula'}${c.telefono?' · Tel: '+c.telefono:''}</div></div>`).join('');
+    html+=res.map(c=>`<div class="client-search-item" onclick="seleccionarClienteFactura('${c.id}')"><div class="csi-name">${esc(c.nombre)}</div><div class="csi-meta">${c.cedula?'CC/NIT: '+esc(c.cedula):'Sin cédula'}${c.telefono?' · Tel: '+esc(c.telefono):''}</div></div>`).join('');
   } else {
     html+=`<div class="client-search-empty">Sin coincidencias — se registrará como cliente nuevo</div>`;
   }
@@ -1654,6 +1683,23 @@ function renderSaldoPagoInfo(total){
 }
 function autoFillPrice(){const s=document.getElementById('f-prod-sel');const o=s.options[s.selectedIndex];if(o?.dataset.precio)ponerValorDinero('f-precio',o.dataset.precio);}
 
+// --- Control de IMEI duplicado --------------------------------------------
+function normalizarImei(s){ return (s||'').trim().toUpperCase(); }
+// ¿Ese IMEI ya quedó vendido en alguna factura vigente? (las anuladas se borran de DB.ventas, así que no cuentan)
+function imeiYaVendido(imei){
+  const norm=normalizarImei(imei);
+  if(!norm) return null;
+  for(const v of DB.ventas){
+    if(v.items && v.items.some(i=>normalizarImei(i.imei)===norm)) return v;
+  }
+  return null;
+}
+function imeiEnCarrito(imei){
+  const norm=normalizarImei(imei);
+  if(!norm) return false;
+  return carrito.some(i=>normalizarImei(i.imei)===norm);
+}
+
 function agregarAlCarrito(){
   const pid=document.getElementById('f-prod-sel').value;
   const precio=numeroDesdeInput('f-precio');
@@ -1662,6 +1708,11 @@ function agregarAlCarrito(){
   if(!pid){toast('Selecciona un producto',true);return;}
   if(qty<1){toast('La cantidad debe ser mayor a cero',true);return;}
   if(precio<0){toast('El precio no puede ser negativo',true);return;}
+  if(imei){
+    const ventaPrevia=imeiYaVendido(imei);
+    if(ventaPrevia){toast(`⚠️ El IMEI ${imei} ya fue vendido en la factura ${ventaPrevia.id}`,true);return;}
+    if(imeiEnCarrito(imei)){toast(`⚠️ El IMEI ${imei} ya está en el carrito`,true);return;}
+  }
   const prod=DB.productos.find(p=>p.id===pid);
   if(!prod)return;
   if(qty>prod.stock){toast(`Stock insuficiente. Disponible: ${prod.stock}`,true);return;}
@@ -1680,8 +1731,8 @@ function renderCarrito(){
   box.innerHTML=carrito.map((item,i)=>`
     <div class="cart-item">
       <div style="flex:1">
-        <div class="cart-item-name">${item.nombre}</div>
-        ${item.imei?`<div class="cart-item-detail" style="color:var(--accent)">IMEI: ${item.imei}</div>`:''}
+        <div class="cart-item-name">${esc(item.nombre)}</div>
+        ${item.imei?`<div class="cart-item-detail" style="color:var(--accent)">IMEI: ${esc(item.imei)}</div>`:''}
         <div class="cart-item-detail">${fmt(item.precio)} × ${item.qty} = <strong style="color:var(--accent)">${fmt(item.subtotal)}</strong></div>
       </div>
       <div style="display:flex;align-items:center;gap:4px;">
@@ -1702,10 +1753,38 @@ function cambiarQty(idx,d){const p=DB.productos.find(x=>x.id===carrito[idx].prod
 function quitarDelCarrito(idx){carrito.splice(idx,1);renderCarrito();}
 function limpiarCarrito(){carrito=[];renderCarrito();}
 
-function finalizarVenta(){
+async function finalizarVenta(){
   if(!carrito.length){toast('El carrito está vacío',true);return;}
   const total=carrito.reduce((s,i)=>s+i.subtotal,0);
   if(total<=0){toast('El total de la venta debe ser mayor a cero',true);return;}
+
+  // Revalidación de stock real (puede haber cambiado desde que se armó el carrito,
+  // por ejemplo si otro dispositivo vendió la última unidad mientras tanto).
+  const necesarioPorProducto={};
+  carrito.forEach(i=>{necesarioPorProducto[i.prodId]=(necesarioPorProducto[i.prodId]||0)+i.qty;});
+  if(cloudDisponible){
+    try{
+      const idsCarrito=Object.keys(necesarioPorProducto);
+      const {data:stockNube,error:errStock}=await supabaseClient.from('productos').select('id,stock').in('id',idsCarrito);
+      if(errStock)throw errStock;
+      (stockNube||[]).forEach(row=>{const p=DB.productos.find(x=>x.id===row.id);if(p)p.stock=row.stock;});
+    }catch(e){ console.error('No se pudo revalidar stock contra la nube, se usa el valor local:',e); }
+  }
+  for(const pid in necesarioPorProducto){
+    const p=DB.productos.find(x=>x.id===pid);
+    const disponible=p?p.stock:0;
+    if(necesarioPorProducto[pid]>disponible){
+      toast(`⚠️ Stock insuficiente de "${p?p.nombre:pid}" — disponible: ${disponible}, en el carrito: ${necesarioPorProducto[pid]}. Ajusta el carrito.`,true);
+      renderCarrito();
+      return;
+    }
+  }
+  for(const item of carrito){
+    if(item.imei){
+      const ventaPrevia=imeiYaVendido(item.imei);
+      if(ventaPrevia){toast(`⚠️ El IMEI ${item.imei} ya fue vendido en la factura ${ventaPrevia.id} — quítalo del carrito`,true);return;}
+    }
+  }
 
   // --- Construir métodos de pago (principal + secundario opcional) ---
   const pago1=document.getElementById('f-pago1').value;
@@ -1733,10 +1812,31 @@ function finalizarVenta(){
   const telefono=document.getElementById('f-telefono').value;
   const vendedor=document.getElementById('f-vendedor').value.trim();
   const notas=document.getElementById('f-notas').value;
-  DB.facturaCounter++;
+
+  // Numeración de factura: se pide un consecutivo ATÓMICO al servidor (función de Postgres
+  // increment_factura_counter) para que dos dispositivos facturando al mismo tiempo nunca
+  // puedan terminar con el mismo número de factura. Si la nube no está disponible, se usa
+  // el contador local como respaldo (mismo comportamiento de antes).
+  let numeroFactura;
+  if(cloudDisponible){
+    try{
+      const {data,error}=await supabaseClient.rpc('increment_factura_counter');
+      if(error)throw error;
+      numeroFactura=data;
+      DB.facturaCounter=numeroFactura;
+    }catch(e){
+      console.error('No se pudo obtener el consecutivo atómico de factura, usando contador local:',e);
+      DB.facturaCounter++;
+      numeroFactura=DB.facturaCounter;
+    }
+  } else {
+    DB.facturaCounter++;
+    numeroFactura=DB.facturaCounter;
+  }
+
   const now=new Date();
   const pagoLabel=pagos.map(p=>p.metodo+(p.financiera?` (${p.financiera})`:'')).join(' + ');
-  const venta={id:'F'+DB.facturaCounter,fecha:today(),hora:now.toTimeString().slice(0,5),cliente,cedula,telefono,pago:pagoLabel,pagos,vendedor,notas,items:[...carrito],total};
+  const venta={id:'F'+numeroFactura,fecha:today(),hora:now.toTimeString().slice(0,5),cliente,cedula,telefono,pago:pagoLabel,pagos,vendedor,notas,items:[...carrito],total};
   DB.ventas.push(venta);
 
   // --- Cuentas por Cobrar: montos a Crédito (financiera o directo) NO ingresan a Caja de inmediato ---
@@ -1782,7 +1882,7 @@ function verFactura(id){
 }
 
 function generarHTMLFactura(v){
-  const rows=v.items.map(i=>`<tr><td>${i.nombre}${i.imei?'<br><span style="font-size:10px;color:#d61f26">IMEI: '+i.imei+'</span>':''}</td><td style="text-align:center">${i.qty}</td><td style="text-align:right">${fmt(i.precio)}</td><td style="text-align:right;font-weight:800">${fmt(i.subtotal)}</td></tr>`).join('');
+  const rows=v.items.map(i=>`<tr><td>${esc(i.nombre)}${i.imei?'<br><span style="font-size:10px;color:#d61f26">IMEI: '+esc(i.imei)+'</span>':''}</td><td style="text-align:center">${i.qty}</td><td style="text-align:right">${fmt(i.precio)}</td><td style="text-align:right;font-weight:800">${fmt(i.subtotal)}</td></tr>`).join('');
   return `<div class="invoice-preview">
     <div class="inv-header">
       <div style="display:flex;align-items:center;gap:12px">
@@ -1799,8 +1899,8 @@ function generarHTMLFactura(v){
       </div>
     </div>
     <div class="inv-info">
-      <div class="inv-info-block"><strong>Cliente</strong><p>${v.cliente}${v.cedula?'<br>CC/NIT: '+v.cedula:''}${v.telefono?'<br>Tel: '+v.telefono:''}${v.notas?'<br>Nota: '+v.notas:''}</p></div>
-      <div class="inv-info-block"><strong>Pago</strong><p>${pagosDeVenta(v).map(p=>`${p.metodo}${p.financiera?' — '+p.financiera:''}: ${fmt(p.monto)}`).join('<br>')}${v.vendedor?'<br>Vendedor: '+v.vendedor:''}<br><span style="color:#d61f26;font-weight:900">✓ PAGADO</span></p></div>
+      <div class="inv-info-block"><strong>Cliente</strong><p>${esc(v.cliente)}${v.cedula?'<br>CC/NIT: '+esc(v.cedula):''}${v.telefono?'<br>Tel: '+esc(v.telefono):''}${v.notas?'<br>Nota: '+esc(v.notas):''}</p></div>
+      <div class="inv-info-block"><strong>Pago</strong><p>${pagosDeVenta(v).map(p=>`${esc(p.metodo)}${p.financiera?' — '+esc(p.financiera):''}: ${fmt(p.monto)}`).join('<br>')}${v.vendedor?'<br>Vendedor: '+esc(v.vendedor):''}<br><span style="color:#d61f26;font-weight:900">✓ PAGADO</span></p></div>
     </div>
     <table class="inv-table"><thead><tr><th>Producto</th><th style="text-align:center">Cant.</th><th style="text-align:right">Precio Unit.</th><th style="text-align:right">Total</th></tr></thead><tbody>${rows}</tbody></table>
     <table class="inv-totals" align="right">
@@ -1937,9 +2037,9 @@ function renderVentas(){
     <div class="kpi-card kpi-red"><div class="kpi-label">Ganancia Bruta</div><div class="kpi-val">${fmt(gan)}</div><div class="kpi-sub">margen estimado</div></div>`;
   document.getElementById('tabla-ventas').innerHTML=[...f].reverse().map(v=>`<tr>
     <td><span class="badge badge-sky">${v.id}</span></td>
-    <td style="font-weight:600">${v.cliente}</td>
-    <td><span class="badge badge-green">${v.pago}</span></td>
-    <td style="font-size:12px;color:var(--text2)">${v.items.map(i=>i.nombre.substring(0,15)+'('+i.qty+')').join(', ')}</td>
+    <td style="font-weight:600">${esc(v.cliente)}</td>
+    <td><span class="badge badge-green">${esc(v.pago)}</span></td>
+    <td style="font-size:12px;color:var(--text2)">${v.items.map(i=>esc(i.nombre.substring(0,15))+'('+i.qty+')').join(', ')}</td>
     <td style="font-weight:800;color:var(--accent)">${fmt(v.total)}</td>
     <td style="font-size:12px">${v.fecha} <span style="color:var(--text2)">${v.hora}</span></td>
     <td><div class="action-btns">
@@ -1996,6 +2096,7 @@ function estadoCXC(c){
   return 'Pendiente';
 }
 function pedirAbonoCXC(id){
+  if(currentRole==='vendedor'&&!puede('cxc_cobrar')){toast('No tienes permiso para registrar abonos',true);return;}
   const c=DB.cuentasPorCobrar.find(x=>x.id===id);
   if(!c)return;
   const saldo=saldoPendienteCXC(c);
@@ -2011,6 +2112,7 @@ function pedirAbonoCXC(id){
   abrirModal('modal-abono-cxc');
 }
 function guardarAbonoCXC(){
+  if(currentRole==='vendedor'&&!puede('cxc_cobrar')){toast('No tienes permiso para registrar abonos',true);return;}
   if(!cxcAbonoId)return;
   const c=DB.cuentasPorCobrar.find(x=>x.id===cxcAbonoId);
   if(!c){cerrarModal('modal-abono-cxc');return;}
@@ -2047,7 +2149,7 @@ function verHistorialAbonos(id){
   const c=DB.cuentasPorCobrar.find(x=>x.id===id);
   if(!c)return;
   const abonos=[...abonosDeCXC(id)].sort((a,b)=>(a.fecha+a.hora).localeCompare(b.fecha+b.hora));
-  document.getElementById('historial-abonos-info').innerHTML=`<strong>${c.cliente}</strong> · Venta ${c.ventaId} · Total: ${fmt(c.monto)} · Saldo pendiente: ${fmt(saldoPendienteCXC(c))}`;
+  document.getElementById('historial-abonos-info').innerHTML=`<strong>${esc(c.cliente)}</strong> · Venta ${c.ventaId} · Total: ${fmt(c.monto)} · Saldo pendiente: ${fmt(saldoPendienteCXC(c))}`;
   document.getElementById('tabla-historial-abonos').innerHTML=abonos.map(a=>`<tr>
     <td style="font-size:12px">${a.fecha} <span style="color:var(--text2)">${a.hora||''}</span></td>
     <td><span class="badge badge-sky">${a.metodo}</span></td>
@@ -2078,6 +2180,7 @@ function guardarGasto(){
   renderCierre();
 }
 function eliminarGasto(id){
+  if(currentRole==='vendedor'&&!puede('cierre_gastos')){toast('No tienes permiso para eliminar gastos',true);return;}
   const g=DB.gastos.find(x=>x.id===id);
   if(!g)return;
   if(!confirm(`¿Eliminar el gasto "${g.descripcion}" de ${fmt(g.monto)}? Esto aumentará el saldo de Caja Principal.`))return;
@@ -2154,8 +2257,8 @@ function renderCierre(){
   }).join(''):'<div class="empty-mini">Sin ventas registradas este día</div>';
 
   document.getElementById('tabla-gastos').innerHTML=[...d.gastosDelDia].reverse().map(g=>`
-    <tr><td style="font-weight:600">${g.descripcion}</td><td style="color:var(--red);font-weight:700">-${fmt(g.monto)}</td>
-    <td style="font-size:12px">${g.hora}</td><td><button class="btn btn-danger btn-sm" onclick="eliminarGasto('${g.id}')">🗑️</button></td></tr>
+    <tr><td style="font-weight:600">${esc(g.descripcion)}</td><td style="color:var(--red);font-weight:700">-${fmt(g.monto)}</td>
+    <td style="font-size:12px">${g.hora}</td><td>${(currentRole==='vendedor'&&!puede('cierre_gastos'))?'':`<button class="btn btn-danger btn-sm" onclick="eliminarGasto('${g.id}')">🗑️</button>`}</td></tr>
   `).join('')||'<tr class="empty-row"><td colspan="4">Sin gastos registrados este día</td></tr>';
 
   document.getElementById('resumen-fecha-label').textContent=dFecha.toLocaleDateString('es-CO',{day:'2-digit',month:'long',year:'numeric'});
@@ -2215,16 +2318,26 @@ function abrirModalCierreCaja(){
   document.getElementById('confirm-cierre-jornada').textContent=d2.toLocaleDateString('es-CO',{weekday:'long',day:'2-digit',month:'long',year:'numeric'})+(yaCerrado?' — esta caja YA fue cerrada antes, se generará un nuevo registro y PDF':'');
   abrirModal('modal-cierre-caja');
 }
+// Construye el registro de un cierre, guardando también el "detalle" completo (snapshot)
+// para que reimprimir el PDF más adelante muestre SIEMPRE los mismos números de cuando
+// se cerró la caja, sin importar si después se editó o borró alguna venta de ese día.
+function construirRegistroCierre(fecha,d,tipo){
+  const existente=DB.cierres.find(c=>c.fecha===fecha);
+  return {
+    id:existente?existente.id:'CZ'+Date.now()+Math.floor(Math.random()*1000),
+    fecha,cerradoEn:new Date().toISOString(),tipo,
+    efectivo:d.efectivoHoy,transferencia:d.transferenciaHoy,tarjeta:d.tarjetaHoy,credito:d.creditoHoy,
+    gastos:d.gastosHoy,cobrosCartera:d.cobrosCarteraHoy,netoCaja:d.netoCajaHoy,cajaPrincipal:d.cajaPrincipal,
+    ventasCount:d.hoy.length,totalVentas:d.total,detalle:d
+  };
+}
 function confirmarCierreCaja(){
   if(currentRole==='vendedor'&&!puede('cierre_cerrar')){toast('No tienes permiso para cerrar la caja',true);return;}
   const fecha=document.getElementById('cierre-fecha').value||today();
   const d=calcularDatosCierre(fecha);
-  DB.cierres.push({
-    id:'CZ'+Date.now(),fecha,cerradoEn:new Date().toISOString(),tipo:'manual',
-    efectivo:d.efectivoHoy,transferencia:d.transferenciaHoy,tarjeta:d.tarjetaHoy,credito:d.creditoHoy,
-    gastos:d.gastosHoy,cobrosCartera:d.cobrosCarteraHoy,netoCaja:d.netoCajaHoy,cajaPrincipal:d.cajaPrincipal,
-    ventasCount:d.hoy.length,totalVentas:d.total
-  });
+  const registro=construirRegistroCierre(fecha,d,'manual');
+  const idx=DB.cierres.findIndex(c=>c.fecha===fecha);
+  if(idx!==-1)DB.cierres[idx]=registro;else DB.cierres.push(registro);
   cerrarModal('modal-cierre-caja');
   saveState();
   generarPDFCierre(d);
@@ -2339,7 +2452,17 @@ function renderHistorialCierres(){
   `).join('')||'<tr class="empty-row"><td colspan="6">Aún no has cerrado ninguna caja</td></tr>';
 }
 function redescargarPDFCierre(fecha){
-  generarPDFCierre(calcularDatosCierre(fecha));
+  const c=DB.cierres.find(x=>x.fecha===fecha);
+  if(c&&c.detalle){
+    // Foto fija del momento del cierre — así el PDF nunca cambia aunque después se
+    // edite o elimine una venta de ese día (un cierre ya hecho no debe moverse).
+    generarPDFCierre(c.detalle);
+  } else {
+    // Cierres antiguos guardados antes de este cambio no tienen snapshot: se recalcula
+    // con una advertencia, igual que se hacía antes.
+    toast('⚠️ Este cierre es anterior a la actualización — el PDF se recalcula con datos actuales',true);
+    generarPDFCierre(calcularDatosCierre(fecha));
+  }
 }
 
 // ============================================================
@@ -2360,17 +2483,13 @@ function chequearCierresAutomaticos(){
   const hoy=today();
   const fechasVentas=DB.ventas.map(v=>v.fecha);
   const fechasGastos=DB.gastos.map(g=>g.fecha);
-  const fechas=[...new Set([...fechasVentas,...fechasGastos])].filter(f=>f && f<hoy);
+  const fechasAbonos=DB.abonosCxc.map(a=>a.fecha); // días donde SOLO hubo cobro de cartera también deben cerrarse
+  const fechas=[...new Set([...fechasVentas,...fechasGastos,...fechasAbonos])].filter(f=>f && f<hoy);
   let huboCierre=false;
   fechas.forEach(fecha=>{
     if(!DB.cierres.find(c=>c.fecha===fecha)){
       const d=calcularDatosCierre(fecha);
-      DB.cierres.push({
-        id:'CZ'+Date.now()+Math.floor(Math.random()*1000),fecha,cerradoEn:new Date().toISOString(),tipo:'automático',
-        efectivo:d.efectivoHoy,transferencia:d.transferenciaHoy,tarjeta:d.tarjetaHoy,credito:d.creditoHoy,
-        gastos:d.gastosHoy,cobrosCartera:d.cobrosCarteraHoy,netoCaja:d.netoCajaHoy,cajaPrincipal:d.cajaPrincipal,
-        ventasCount:d.hoy.length,totalVentas:d.total
-      });
+      DB.cierres.push(construirRegistroCierre(fecha,d,'automático'));
       huboCierre=true;
     }
   });
@@ -2410,11 +2529,12 @@ function renderClientes(){
     const vs=DB.ventas.filter(v=>v.cliente===c.nombre);
     const tot=vs.reduce((s,v)=>s+v.total,0);
     const ult=vs.length?vs[vs.length-1].fecha:'—';
-    return `<tr><td style="font-weight:700">${c.nombre}</td><td style="color:var(--text2)">${c.cedula||'—'}</td><td>${c.telefono||'—'}</td><td style="text-align:center;font-weight:700">${vs.length}</td><td style="font-weight:800;color:var(--accent)">${fmt(tot)}</td><td>${ult}</td></tr>`;
+    return `<tr><td style="font-weight:700">${esc(c.nombre)}</td><td style="color:var(--text2)">${esc(c.cedula)||'—'}</td><td>${esc(c.telefono)||'—'}</td><td style="text-align:center;font-weight:700">${vs.length}</td><td style="font-weight:800;color:var(--accent)">${fmt(tot)}</td><td>${ult}</td></tr>`;
   }).join('')||'<tr class="empty-row"><td colspan="6">Sin clientes</td></tr>';
 }
-function abrirModalCliente(){['c-nombre','c-cedula','c-tel','c-email','c-dir'].forEach(id=>document.getElementById(id).value='');abrirModal('modal-cliente');}
+function abrirModalCliente(){if(currentRole==='vendedor'&&!puede('clientes_editar')){toast('No tienes permiso para agregar clientes',true);return;}['c-nombre','c-cedula','c-tel','c-email','c-dir'].forEach(id=>document.getElementById(id).value='');abrirModal('modal-cliente');}
 function guardarCliente(){
+  if(currentRole==='vendedor'&&!puede('clientes_editar')){toast('No tienes permiso para agregar clientes',true);return;}
   const nombre=document.getElementById('c-nombre').value.trim();
   if(!nombre){toast('El nombre es obligatorio',true);return;}
   DB.clientes.push({id:'C'+Date.now(),nombre,cedula:document.getElementById('c-cedula').value,telefono:document.getElementById('c-tel').value,email:document.getElementById('c-email').value,dir:document.getElementById('c-dir').value});
@@ -2458,7 +2578,7 @@ function renderCXC(){
     return `<tr>
     <td><span class="badge badge-sky">${c.id}</span></td>
     <td>${c.ventaId}</td>
-    <td style="font-weight:600">${c.cliente}</td>
+    <td style="font-weight:600">${esc(c.cliente)}</td>
     <td>${c.esDirecto?'<span class="badge badge-yellow">🏠 Crédito Directo</span>':`<span class="badge badge-sky">🏦 ${c.financiera}</span>`}</td>
     <td style="color:var(--text2)">${fmt(c.monto)}</td>
     <td style="font-weight:800;color:var(--accent)">${fmt(saldo)}</td>
@@ -2467,7 +2587,7 @@ function renderCXC(){
     <td><div class="action-btns">
       <button class="btn btn-outline btn-sm" onclick="verFactura('${c.ventaId}')" title="Ver factura">🧾</button>
       ${tieneAbonos?`<button class="btn btn-outline btn-sm" onclick="verHistorialAbonos('${c.id}')" title="Ver abonos">📜</button>`:''}
-      ${saldo>0?`<button class="btn btn-success btn-sm" onclick="pedirAbonoCXC('${c.id}')">💰 Abonar</button>`:''}
+      ${(saldo>0&&(currentRole!=='vendedor'||puede('cxc_cobrar')))?`<button class="btn btn-success btn-sm" onclick="pedirAbonoCXC('${c.id}')">💰 Abonar</button>`:''}
     </div></td></tr>`;
   }).join('')||'<tr class="empty-row"><td colspan="9">Sin cuentas por cobrar registradas</td></tr>';
 }
@@ -2551,6 +2671,8 @@ function aplicarPermisosRol(){
   });
   const btnGasto = document.querySelector("#page-cierre .btn-outline[onclick=\"abrirModalGasto()\"]");
   if(btnGasto) btnGasto.style.display = (esVendedor && !puede('cierre_gastos')) ? 'none' : '';
+  const btnNuevoCliente = document.querySelector("#page-clientes .btn-primary[onclick=\"abrirModalCliente()\"]");
+  if(btnNuevoCliente) btnNuevoCliente.style.display = (esVendedor && !puede('clientes_editar')) ? 'none' : '';
   const btnCerrarCaja = document.querySelector("#page-cierre .btn-primary[onclick=\"abrirModalCierreCaja()\"]");
   if(btnCerrarCaja) btnCerrarCaja.style.display = (esVendedor && !puede('cierre_cerrar')) ? 'none' : '';
   document.querySelectorAll('[onclick^="pedirEliminarVenta"]').forEach(btn=>{
