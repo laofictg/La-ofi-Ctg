@@ -1082,7 +1082,7 @@ function goTo(page){
 // UTILS
 // ============================================================
 function fmt(n){return '$'+Math.round(n).toLocaleString('es-CO');}
-function today(){return new Date().toISOString().split('T')[0];}
+function today(){ const d=new Date(); return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); }
 
 // ============================================================
 // FORMATO AUTOMÁTICO DE MILES EN CAMPOS DE DINERO
@@ -1211,7 +1211,7 @@ function confirmarEliminarVenta(){
     if(p){p.stock+=item.qty;}
     // Registrar movimiento de reversión
     const now=new Date();
-    DB.movimientos.push({id:'M'+Date.now()+'-'+Math.random().toString(36).slice(2,7),fecha:now.toISOString().split('T')[0],hora:now.toTimeString().slice(0,5),producto:item.nombre,prodId:item.prodId,tipo:'Anulación de venta',cantidad:item.qty,ref:'Eliminado: '+v.id,user:'Admin'});
+    DB.movimientos.push({id:'M'+Date.now()+'-'+Math.random().toString(36).slice(2,7),fecha:today(),hora:now.toTimeString().slice(0,5),producto:item.nombre,prodId:item.prodId,tipo:'Anulación de venta',cantidad:item.qty,ref:'Eliminado: '+v.id,user:'Admin'});
   });
   DB.ventas.splice(idx,1);
   // Eliminar cuentas por cobrar asociadas a esta venta
@@ -1340,7 +1340,7 @@ function guardarIngreso(){
   const p=DB.productos.find(x=>x.id===pid);
   if(tipo.includes('negativo')){p.stock=Math.max(0,p.stock-qty);}else{p.stock+=qty;}
   const now=new Date();
-  DB.movimientos.push({id:'M'+Date.now()+'-'+Math.random().toString(36).slice(2,7),fecha:now.toISOString().split('T')[0],hora:now.toTimeString().slice(0,5),producto:p.nombre,prodId:p.id,tipo,cantidad:qty,ref:ref||'-',user:'Admin'});
+  DB.movimientos.push({id:'M'+Date.now()+'-'+Math.random().toString(36).slice(2,7),fecha:today(),hora:now.toTimeString().slice(0,5),producto:p.nombre,prodId:p.id,tipo,cantidad:qty,ref:ref||'-',user:'Admin'});
   cerrarModal('modal-ingreso');renderInventario();refreshSelectores();
   toast(`📥 ${tipo}: ${qty} uds de ${p.nombre}`);
   saveState();
@@ -1541,7 +1541,7 @@ function finalizarVenta(){
   DB.facturaCounter++;
   const now=new Date();
   const pagoLabel=pagos.map(p=>p.metodo+(p.financiera?` (${p.financiera})`:'')).join(' + ');
-  const venta={id:'F'+DB.facturaCounter,fecha:now.toISOString().split('T')[0],hora:now.toTimeString().slice(0,5),cliente,cedula,telefono,pago:pagoLabel,pagos,vendedor,notas,items:[...carrito],total};
+  const venta={id:'F'+DB.facturaCounter,fecha:today(),hora:now.toTimeString().slice(0,5),cliente,cedula,telefono,pago:pagoLabel,pagos,vendedor,notas,items:[...carrito],total};
   DB.ventas.push(venta);
 
   // --- Cuentas por Cobrar: montos a Crédito NO ingresan a Caja de inmediato ---
