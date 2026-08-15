@@ -561,36 +561,45 @@
     <!-- INVENTARIO -->
     <div id="page-inventario" class="page">
       <div class="page-header">
-        <div><div class="page-title">🗂️ Control de Inventario</div><div class="page-sub">Ingresos, salidas y ajustes de stock</div></div>
+        <div><div class="page-title">🗂️ Control de Inventario</div><div class="page-sub">Stock actual y todos los movimientos del negocio</div></div>
         <div style="display:flex;gap:8px;flex-wrap:wrap;">
-          <button class="btn btn-outline btn-sm" onclick="exportarInventarioExcel()">📊 Exportar Excel</button>
-          <button class="btn btn-outline btn-sm" onclick="exportarInventarioPDF()">📄 Exportar PDF</button>
           <button class="btn btn-primary" onclick="abrirModalIngreso()">📥 Ingresar Mercancía</button>
         </div>
       </div>
       <div class="kpi-grid kpi-grid-3" id="kpi-inventario"></div>
 
       <div class="tabs" style="margin-bottom:14px;">
-        <button class="tab-btn active" id="tab-btn-entradas" onclick="cambiarTabInventario('entradas')">📥 Entradas de Mercancía</button>
-        <button class="tab-btn" id="tab-btn-movimientos" onclick="cambiarTabInventario('movimientos')">📋 Movimientos (Todo)</button>
+        <button class="tab-btn active" id="tab-btn-stock" onclick="cambiarTabInventario('stock')">📦 Inventario</button>
+        <button class="tab-btn" id="tab-btn-movimientos" onclick="cambiarTabInventario('movimientos')">📋 Movimientos</button>
       </div>
 
-      <!-- SUB-PÁGINA: ENTRADAS DE MERCANCÍA -->
-      <div id="inv-tab-entradas" class="inv-tab">
-        <div class="kpi-grid kpi-grid-3" id="kpi-entradas"></div>
+      <!-- SUB-PÁGINA: INVENTARIO (stock actual por producto) -->
+      <div id="inv-tab-stock" class="inv-tab">
         <div class="card">
-          <div class="card-header"><span class="card-title">📥 Entradas de Mercancía</span></div>
-          <div class="page-sub" style="margin:-4px 0 12px;">Compras, devoluciones y ajustes positivos de stock — las ventas y anulaciones no aparecen aquí</div>
-          <table><thead><tr><th>Fecha/Hora</th><th>Producto</th><th>Tipo</th><th>Cantidad</th><th>Costo Unit.</th><th>Valor Total</th><th>Proveedor</th><th># Remisión</th><th>Usuario</th></tr></thead>
-          <tbody id="tabla-entradas"></tbody></table>
+          <div class="card-header">
+            <span class="card-title">📦 Stock Actual</span>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;">
+              <button class="btn btn-outline btn-sm" onclick="exportarInventarioExcel()">📊 Exportar Excel</button>
+              <button class="btn btn-outline btn-sm" onclick="exportarInventarioPDF()">📄 Exportar PDF</button>
+            </div>
+          </div>
+          <div class="page-sub" style="margin:-4px 0 12px;">Existencias actuales por producto — para ver cómo llegó cada unidad, usa la pestaña Movimientos</div>
+          <table><thead><tr><th>Código</th><th>Producto</th><th>Categoría</th><th>Costo Unit.</th><th>Stock</th><th>Valor en Stock</th><th>Estado</th></tr></thead>
+          <tbody id="tabla-stock-inventario"></tbody></table>
         </div>
       </div>
 
-      <!-- SUB-PÁGINA: MOVIMIENTOS (TODO) -->
+      <!-- SUB-PÁGINA: MOVIMIENTOS (ventas, anulaciones, ingresos, ajustes — todo junto) -->
       <div id="inv-tab-movimientos" class="inv-tab" style="display:none;">
         <div class="card">
-          <div class="card-header"><span class="card-title">📋 Historial de Movimientos</span></div>
-          <div class="page-sub" style="margin:-4px 0 12px;">Registro completo: entradas, ventas y anulaciones</div>
+          <div class="card-header">
+            <span class="card-title">📋 Historial de Movimientos</span>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;">
+              <button class="btn btn-outline btn-sm" onclick="exportarMovimientosExcel()">📊 Exportar Excel</button>
+              <button class="btn btn-outline btn-sm" onclick="exportarMovimientosPDF()">📄 Exportar PDF</button>
+            </div>
+          </div>
+          <div class="page-sub" style="margin:-4px 0 12px;">Todo lo que mueve el inventario: ventas, anulaciones, compras, devoluciones y ajustes</div>
           <table><thead><tr><th>Fecha/Hora</th><th>Producto</th><th>Tipo</th><th>Cantidad</th><th>Referencia</th><th>Usuario</th></tr></thead>
           <tbody id="tabla-movimientos"></tbody></table>
         </div>
@@ -1385,13 +1394,10 @@ function eliminarProducto(idx){if(currentRole==='vendedor'&&!puede('productos_ed
 // ============================================================
 // INVENTARIO
 // ============================================================
-// Tipos que cuentan como "entrada real de mercancía" (no ventas, no anulaciones)
-const TIPOS_ENTRADA_MERCANCIA = ['Compra','Devolución','Ajuste positivo'];
-
 function cambiarTabInventario(tab){
-  document.getElementById('inv-tab-entradas').style.display = tab==='entradas' ? '' : 'none';
+  document.getElementById('inv-tab-stock').style.display = tab==='stock' ? '' : 'none';
   document.getElementById('inv-tab-movimientos').style.display = tab==='movimientos' ? '' : 'none';
-  document.getElementById('tab-btn-entradas').classList.toggle('active', tab==='entradas');
+  document.getElementById('tab-btn-stock').classList.toggle('active', tab==='stock');
   document.getElementById('tab-btn-movimientos').classList.toggle('active', tab==='movimientos');
 }
 
@@ -1404,26 +1410,17 @@ function renderInventario(){
     <div class="kpi-card kpi-green"><div class="kpi-label">Valor Inventario</div><div class="kpi-val">${fmt(vi)}</div><div class="kpi-sub">a precio de costo</div></div>
     <div class="kpi-card kpi-red"><div class="kpi-label">Alertas Stock</div><div class="kpi-val">${b}</div><div class="kpi-sub">bajo mínimo</div></div>`;
 
-  // --- Pestaña 1: Entradas de Mercancía (solo Compra/Devolución/Ajuste positivo) ---
-  const entradas=DB.movimientos.filter(m=>TIPOS_ENTRADA_MERCANCIA.includes(m.tipo));
-  const unidadesIngresadas=entradas.reduce((s,m)=>s+m.cantidad,0);
-  const valorIngresado=entradas.reduce((s,m)=>s+(m.cantidad*(m.costoUnitario||0)),0);
-  document.getElementById('kpi-entradas').innerHTML=`
-    <div class="kpi-card kpi-blue"><div class="kpi-label">Unidades Ingresadas</div><div class="kpi-val">${unidadesIngresadas}</div><div class="kpi-sub">histórico</div></div>
-    <div class="kpi-card kpi-green"><div class="kpi-label">Valor Ingresado</div><div class="kpi-val">${fmt(valorIngresado)}</div><div class="kpi-sub">a costo registrado</div></div>
-    <div class="kpi-card kpi-red"><div class="kpi-label"># Entradas</div><div class="kpi-val">${entradas.length}</div><div class="kpi-sub">registros</div></div>`;
-  document.getElementById('tabla-entradas').innerHTML=[...entradas].reverse().map(m=>`<tr>
-    <td>${m.fecha} <span style="color:var(--text2)">${m.hora}</span></td>
-    <td style="font-weight:600">${esc(m.producto)}</td>
-    <td><span class="badge badge-green">${esc(m.tipo)}</span></td>
-    <td style="font-weight:800">${m.cantidad}</td>
-    <td style="color:var(--text2)">${m.costoUnitario?fmt(m.costoUnitario):'-'}</td>
-    <td style="color:var(--text2)">${m.costoUnitario?fmt(m.cantidad*m.costoUnitario):'-'}</td>
-    <td style="color:var(--text2)">${esc(m.proveedor)||'-'}</td>
-    <td style="color:var(--text2)">${esc(m.ref)||'-'}</td>
-    <td>${esc(m.user)}</td></tr>`).join('')||'<tr class="empty-row"><td colspan="9">Sin entradas de mercancía registradas</td></tr>';
+  // --- Pestaña 1: Inventario (stock actual por producto) ---
+  document.getElementById('tabla-stock-inventario').innerHTML=[...DB.productos].sort((a,b)=>a.nombre.localeCompare(b.nombre)).map(p=>`<tr>
+    <td><code style="color:var(--accent);font-size:11px;background:rgba(214,31,38,0.08);padding:2px 6px;border-radius:4px">${esc(p.codigo)}</code></td>
+    <td style="font-weight:600">${esc(p.nombre)}</td>
+    <td><span class="badge badge-sky">${esc(p.cat)}</span></td>
+    <td style="color:var(--text2)">${fmt(p.costo)}</td>
+    <td style="font-weight:800">${p.stock}</td>
+    <td style="font-weight:700">${fmt(p.stock*p.costo)}</td>
+    <td>${p.stock<=p.min?'<span class="badge badge-red">Bajo mínimo</span>':'<span class="badge badge-green">OK</span>'}</td></tr>`).join('')||'<tr class="empty-row"><td colspan="7">No hay productos en el catálogo</td></tr>';
 
-  // --- Pestaña 2: Movimientos (Todo) ---
+  // --- Pestaña 2: Movimientos (ventas, anulaciones, ingresos, ajustes — todo junto) ---
   document.getElementById('tabla-movimientos').innerHTML=[...DB.movimientos].reverse().map(m=>`<tr>
     <td>${m.fecha} <span style="color:var(--text2)">${m.hora}</span></td>
     <td style="font-weight:600">${esc(m.producto)}</td>
@@ -1520,6 +1517,73 @@ function exportarInventarioPDF(){
 
   doc.save(`Inventario_LaOfiCtg_${today()}.pdf`);
   toast('📄 PDF de inventario descargado');
+}
+
+// ============================================================
+// EXPORTAR MOVIMIENTOS (ventas, anulaciones, ingresos, ajustes — todo junto)
+// ============================================================
+function exportarMovimientosExcel(){
+  if(typeof XLSX==='undefined'){toast('No se pudo cargar el módulo de Excel. Revisa tu conexión e intenta de nuevo.',true);return;}
+  if(!DB.movimientos.length){toast('No hay movimientos registrados para exportar',true);return;}
+  const filas=[...DB.movimientos].reverse().map(m=>({
+    'Fecha':m.fecha,'Hora':m.hora,'Producto':m.producto,'Tipo':m.tipo,'Cantidad':m.cantidad,
+    'Costo Unitario':m.costoUnitario||'','Valor Total':m.costoUnitario?m.cantidad*m.costoUnitario:'',
+    'Proveedor':m.proveedor||'','Referencia':m.ref||'','Usuario':m.user||''
+  }));
+  const ws=XLSX.utils.json_to_sheet(filas);
+  ws['!cols']=[{wch:12},{wch:8},{wch:30},{wch:18},{wch:10},{wch:14},{wch:14},{wch:20},{wch:16},{wch:12}];
+  const wb=XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb,ws,'Movimientos');
+  XLSX.writeFile(wb,`Movimientos_LaOfiCtg_${today()}.xlsx`);
+  toast('📊 Excel de movimientos descargado');
+}
+
+function exportarMovimientosPDF(){
+  if(!DB.movimientos.length){toast('No hay movimientos registrados para exportar',true);return;}
+  const movs=[...DB.movimientos].reverse();
+  const {jsPDF}=window.jspdf;
+  const doc=new jsPDF({unit:'mm',format:'a4'});
+  let y=22;
+  doc.setFillColor(214,31,38);doc.rect(0,0,210,32,'F');
+  doc.addImage(LOGO_SRC,'JPEG',6,5,22,20);
+  doc.setTextColor(255,255,255);doc.setFontSize(15);doc.setFont('helvetica','bold');
+  doc.text('HISTORIAL DE MOVIMIENTOS',34,15);
+  doc.setFontSize(9);doc.setFont('helvetica','normal');
+  doc.text('La Ofi Ctg — C.C. Los Ejecutivos, Local 23B, Cartagena',34,21);
+  doc.text(today(),196,18,{align:'right'});
+  y=40;
+  doc.setTextColor(120,120,120);doc.setFontSize(9);doc.setFont('helvetica','normal');
+  doc.text(`Generado: ${new Date().toLocaleString('es-CO')}  ·  Total de movimientos: ${movs.length}`,16,y);
+  y+=9;
+
+  function encabezadoTabla(){
+    if(y>270){doc.addPage();y=20;}
+    doc.setFillColor(26,26,26);doc.rect(14,y-5,182,7,'F');
+    doc.setTextColor(255,255,255);doc.setFontSize(8);doc.setFont('helvetica','bold');
+    doc.text('Fecha/Hora',16,y);
+    doc.text('Producto',52,y);
+    doc.text('Tipo',118,y);
+    doc.text('Cant.',158,y,{align:'right'});
+    doc.text('Referencia',196,y,{align:'right'});
+    y+=8;
+    doc.setTextColor(0,0,0);doc.setFont('helvetica','normal');
+  }
+  encabezadoTabla();
+  movs.forEach((m,i)=>{
+    if(y>280){doc.addPage();y=20;encabezadoTabla();}
+    if(i%2===0){doc.setFillColor(240,242,245);doc.rect(14,y-4.5,182,6.5,'F');}
+    doc.setFontSize(7.5);doc.setTextColor(0,0,0);
+    doc.text(`${m.fecha} ${m.hora}`,16,y);
+    doc.text(String(m.producto||'').substring(0,32),52,y);
+    doc.text(String(m.tipo||''),118,y);
+    doc.text(String(m.cantidad),158,y,{align:'right'});
+    const refTxt=(m.proveedor?m.proveedor+(m.ref?' · '+m.ref:''):(m.ref||'-'));
+    doc.text(String(refTxt).substring(0,26),196,y,{align:'right'});
+    y+=6.5;
+  });
+
+  doc.save(`Movimientos_LaOfiCtg_${today()}.pdf`);
+  toast('📄 PDF de movimientos descargado');
 }
 
 function abrirModalIngreso(){
@@ -2071,10 +2135,15 @@ function metodoMeta(m){
 // Transferencia y Tarjeta NO son dinero físico en la caja, por eso no se suman aquí (aunque sí son ingresos del negocio).
 // Cada abono ahora guarda su propio método de pago (ver abonos_cxc), así que un abono por
 // transferencia o tarjeta no infla la Caja Principal — solo lo hace si el cliente pagó en efectivo.
-function cajaPrincipalActual(){
-  const efectivoVentasHistorico = DB.ventas.reduce((s,v)=>s+pagosDeVenta(v).filter(p=>p.metodo==='Efectivo').reduce((ss,p)=>ss+p.monto,0),0);
-  const efectivoAbonosHistorico = DB.abonosCxc.filter(a=>a.metodo==='Efectivo').reduce((s,a)=>s+a.monto,0);
-  const gastosHistoricos = DB.gastos.reduce((s,g)=>s+g.monto,0);
+// Caja Principal = SOLO efectivo físico HASTA una fecha de corte (ventas en Efectivo + abonos a Cuentas por
+// Cobrar en Efectivo − gastos), NUNCA más allá de esa fecha. Esto es crítico para que el cierre de un día
+// pasado no se "contamine" con ventas de días posteriores solo porque el reporte se generó o se volvió a
+// descargar más tarde (ej. un cierre automático del día 13 que corre recién el día 15).
+function cajaPrincipalActual(fechaCorte){
+  const corte = fechaCorte || today();
+  const efectivoVentasHistorico = DB.ventas.filter(v=>v.fecha<=corte).reduce((s,v)=>s+pagosDeVenta(v).filter(p=>p.metodo==='Efectivo').reduce((ss,p)=>ss+p.monto,0),0);
+  const efectivoAbonosHistorico = DB.abonosCxc.filter(a=>a.fecha<=corte&&a.metodo==='Efectivo').reduce((s,a)=>s+a.monto,0);
+  const gastosHistoricos = DB.gastos.filter(g=>g.fecha<=corte).reduce((s,g)=>s+g.monto,0);
   return efectivoVentasHistorico + efectivoAbonosHistorico - gastosHistoricos;
 }
 
@@ -2226,7 +2295,7 @@ function calcularDatosCierre(fecha){
   const netoCajaHoy=efectivoHoy-gastosHoy;
   const totalGeneralHoy=efectivoHoy+transferenciaHoy+tarjetaHoy-gastosHoy;
   const gananciaHoy=hoy.reduce((s,v)=>s+v.items.reduce((ss,i)=>{const costo=(i.costo!==undefined&&i.costo!==null)?i.costo:(DB.productos.find(x=>x.id===i.prodId)?.costo||0);return ss+(i.precio-costo)*i.qty;},0),0);
-  const cajaPrincipal=cajaPrincipalActual();
+  const cajaPrincipal=cajaPrincipalActual(fecha);
   return {fecha,hoy,total,porMetodo,porMetodoVentas,porMetodoAbonos,ventasEfectivoHoy,abonosEfectivoHoy,efectivoHoy,transferenciaDetalle,transferenciaHoy,tarjetaHoy,creditoHoy,creditoDirectoHoy,gastosDelDia,gastosHoy,abonosHoy,cobrosCarteraHoy,abonosDirectoHoy,abonosFinancieraHoy,cxcGeneradasHoy,netoCajaHoy,totalGeneralHoy,gananciaHoy,cajaPrincipal};
 }
 function renderCierre(){
