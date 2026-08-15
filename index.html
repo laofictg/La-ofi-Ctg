@@ -1229,7 +1229,7 @@ function renderDashboard(){
     <div class="kpi-card kpi-green"><div class="kpi-label">🏦 En Caja Hoy</div><div class="kpi-val">${fmt(cajaHoy)}</div><div class="kpi-sub">efectivo + tarjeta + transf. + cobros de cartera</div></div>
     <div class="kpi-card kpi-yellow"><div class="kpi-label">📋 Cartera Pendiente</div><div class="kpi-val">${fmt(carteraPendiente)}</div><div class="kpi-sub">por cobrar a financieras</div></div>`;
   const alertas=DB.productos.filter(p=>p.stock<=p.min);
-  document.getElementById('stock-alerts').innerHTML=alertas.length?`<div class="stock-alert">⚠️ <strong>Alerta:</strong> ${alertas.map(p=>`${p.nombre} — ${p.stock} uds`).join(' · ')}</div>`:'';
+  document.getElementById('stock-alerts').innerHTML=alertas.length?`<div class="stock-alert">⚠️ <strong>Alerta:</strong> ${alertas.map(p=>`${esc(p.nombre)} — ${p.stock} uds`).join(' · ')}</div>`:'';
   const ultimas=[...DB.ventas].reverse().slice(0,8);
   document.getElementById('tabla-ultimas-ventas').innerHTML=ultimas.map(v=>`<tr>
     <td><span class="badge badge-sky">${v.id}</span></td>
@@ -1269,9 +1269,18 @@ function pedirEliminarVenta(id){
   if(currentRole==='vendedor'&&!puede('ventas_eliminar')){toast('No tienes permiso para eliminar ventas',true);return;}
   const v=DB.ventas.find(x=>x.id===id);
   if(!v)return;
+  // Si la cuenta por cobrar de esta venta ya tiene abonos (dinero real ya cobrado), no se puede
+  // anular automáticamente: borrar esos abonos haría "desaparecer" plata que sí entró a la caja.
+  const cxcAsociadas=DB.cuentasPorCobrar.filter(c=>c.ventaId===id);
+  const cxcConAbonos=cxcAsociadas.filter(c=>abonosDeCXC(c.id).length>0);
+  if(cxcConAbonos.length){
+    const totalAbonado=cxcConAbonos.reduce((s,c)=>s+abonosDeCXC(c.id).reduce((ss,a)=>ss+a.monto,0),0);
+    toast(`⚠️ No se puede anular: esta venta tiene ${fmt(totalAbonado)} ya cobrados en abonos. Primero gestiona esa cuenta por cobrar en Cuentas por Cobrar (o contáctame para hacer el ajuste correcto) — así no se pierde el registro de ese dinero.`,true);
+    return;
+  }
   ventaAEliminarId=id;
   const cajaCerrada=DB.cierres.find(c=>c.fecha===v.fecha);
-  const cxcCount=DB.cuentasPorCobrar.filter(c=>c.ventaId===id).length;
+  const cxcCount=cxcAsociadas.length;
   document.getElementById('confirm-venta-msg').textContent=`¿Eliminar la venta ${id}?`;
   document.getElementById('confirm-venta-sub').textContent=`Cliente: ${v.cliente} · Total: ${fmt(v.total)} · ${v.fecha} ${v.hora}. Esta acción restaurará el stock de los productos${cxcCount?` y eliminará ${cxcCount} registro(s) de Cuentas por Cobrar asociados`:''} y no se puede deshacer.`+(cajaCerrada?` ⚠️ La caja de ese día (${v.fecha}) YA FUE CERRADA — el PDF de ese cierre quedará desactualizado frente a los datos actuales.`:'');
   abrirModal('modal-confirm-venta');
@@ -1282,6 +1291,14 @@ function confirmarEliminarVenta(){
   const idx=DB.ventas.findIndex(x=>x.id===ventaAEliminarId);
   if(idx===-1){cerrarModal('modal-confirm-venta');return;}
   const v=DB.ventas[idx];
+  // Defensa en profundidad: revalidar aquí también que no haya abonos, por si esta función
+  // se llegara a invocar sin pasar por pedirEliminarVenta().
+  const cxcAsociadas=DB.cuentasPorCobrar.filter(c=>c.ventaId===v.id);
+  if(cxcAsociadas.some(c=>abonosDeCXC(c.id).length>0)){
+    toast('⚠️ No se puede anular: esta venta tiene abonos ya cobrados. Gestiona la cuenta por cobrar primero.',true);
+    ventaAEliminarId=null;cerrarModal('modal-confirm-venta');
+    return;
+  }
   // Restaurar stock
   v.items.forEach(item=>{
     const p=DB.productos.find(x=>x.id===item.prodId);
@@ -1291,15 +1308,11 @@ function confirmarEliminarVenta(){
     DB.movimientos.push({id:'M'+Date.now()+'-'+Math.random().toString(36).slice(2,7),fecha:today(),hora:now.toTimeString().slice(0,5),producto:item.nombre,prodId:item.prodId,tipo:'Anulación de venta',cantidad:item.qty,ref:'Eliminado: '+v.id,user:'Admin'});
   });
   DB.ventas.splice(idx,1);
-  // Eliminar cuentas por cobrar asociadas a esta venta (y sus abonos, si tenía)
-  const cxcAsociadas=DB.cuentasPorCobrar.filter(c=>c.ventaId===v.id);
-  const conAbonos=cxcAsociadas.filter(c=>abonosDeCXC(c.id).length>0).length;
-  const idsCxcAsociadas=new Set(cxcAsociadas.map(c=>c.id));
+  // Eliminar cuentas por cobrar asociadas a esta venta (ya se confirmó arriba que ninguna tiene abonos)
   DB.cuentasPorCobrar=DB.cuentasPorCobrar.filter(c=>c.ventaId!==v.id);
-  DB.abonosCxc=DB.abonosCxc.filter(a=>!idsCxcAsociadas.has(a.cxcId));
   ventaAEliminarId=null;
   cerrarModal('modal-confirm-venta');
-  toast(`🗑️ Venta ${v.id} eliminada — stock restaurado${cxcAsociadas.length?` · ${cxcAsociadas.length} cuenta(s) por cobrar eliminada(s)${conAbonos?` (${conAbonos} tenían abonos registrados que también se eliminaron)`:''}`:''}`, conAbonos>0);
+  toast(`🗑️ Venta ${v.id} eliminada — stock restaurado${cxcAsociadas.length?` · ${cxcAsociadas.length} cuenta(s) por cobrar eliminada(s)`:''}`);
   saveState();
   // Refrescar la página activa
   const active=document.querySelector('.page.active');
@@ -1386,9 +1399,13 @@ function eliminarProducto(idx){if(currentRole==='vendedor'&&!puede('productos_ed
   const p=DB.productos[idx];if(!p)return;
   const tieneVentas=DB.ventas.some(v=>v.items.some(i=>i.prodId===p.id));
   let msg=`¿Eliminar "${p.nombre}"?`;
-  if(p.stock>0)msg+=`\n\n⚠️ Este producto todavía tiene ${p.stock} unidades en stock — se perderán del inventario sin quedar registradas como salida/pérdida.`;
+  if(p.stock>0)msg+=`\n\n⚠️ Este producto todavía tiene ${p.stock} unidades en stock — quedará un "Ajuste negativo" registrado en Movimientos por esa cantidad para no perder el rastro.`;
   if(tieneVentas)msg+=`\n\nℹ️ Este producto ya tiene ventas registradas en el historial; esas facturas seguirán mostrando su nombre correctamente, pero el producto ya no aparecerá en el catálogo.`;
   if(!confirm(msg))return;
+  if(p.stock>0){
+    const now=new Date();
+    DB.movimientos.push({id:'M'+Date.now()+'-'+Math.random().toString(36).slice(2,7),fecha:today(),hora:now.toTimeString().slice(0,5),producto:p.nombre,prodId:p.id,tipo:'Ajuste negativo',cantidad:p.stock,ref:'Producto eliminado del catálogo',user:'Admin'});
+  }
   DB.productos.splice(idx,1);renderProductos();refreshSelectores();toast('🗑️ Producto eliminado');saveState();}
 
 // ============================================================
@@ -1589,7 +1606,7 @@ function exportarMovimientosPDF(){
 function abrirModalIngreso(){
   if(currentRole==='vendedor'&&!puede('inventario_editar')){toast('No tienes permiso para modificar el inventario',true);return;}
   const s=document.getElementById('ing-prod');
-  s.innerHTML='<option value="">— Seleccionar —</option>'+DB.productos.map(p=>`<option value="${p.id}">${p.nombre} (Stock: ${p.stock})</option>`).join('');
+  s.innerHTML='<option value="">— Seleccionar —</option>'+DB.productos.map(p=>`<option value="${p.id}">${esc(p.nombre)} (Stock: ${p.stock})</option>`).join('');
   document.getElementById('ing-qty').value='';
   document.getElementById('ing-costo').value='';
   document.getElementById('ing-proveedor').value='';
@@ -1639,7 +1656,7 @@ function guardarIngreso(){
 // ============================================================
 function refreshSelectores(){
   const s=document.getElementById('f-prod-sel');
-  if(s){const pv=s.value;s.innerHTML='<option value="">— Seleccionar —</option>'+DB.productos.map(p=>`<option value="${p.id}" data-precio="${p.precio}">${p.nombre} — ${fmt(p.precio)} (Stock: ${p.stock})</option>`).join('');if(pv)s.value=pv;}
+  if(s){const pv=s.value;s.innerHTML='<option value="">— Seleccionar —</option>'+DB.productos.map(p=>`<option value="${p.id}" data-precio="${p.precio}">${esc(p.nombre)} — ${fmt(p.precio)} (Stock: ${p.stock})</option>`).join('');if(pv)s.value=pv;}
   const dv=document.getElementById('vendedores-list');if(dv){const vs=[...new Set(DB.ventas.map(v=>v.vendedor).filter(Boolean))];dv.innerHTML='';vs.forEach(v=>{const o=document.createElement('option');o.value=v;dv.appendChild(o);});}
 }
 function buscarClientesFactura(){
@@ -2570,22 +2587,27 @@ function chequearCierresAutomaticos(){
 // ============================================================
 function renderReportes(){
   const periodo=document.getElementById('rep-periodo')?.value||'semana';
-  const hoy=new Date();let desde,labels=[],data=[];
-  if(periodo==='semana'){desde=new Date(hoy);desde.setDate(desde.getDate()-6);for(let i=6;i>=0;i--){const d=new Date(hoy);d.setDate(d.getDate()-i);labels.push(['Dom','Lun','Mar','Mié','Jue','Vie','Sáb'][d.getDay()]);data.push(DB.ventas.filter(v=>v.fecha===localDateStr(d)).reduce((s,v)=>s+v.total,0));}document.getElementById('rep-chart-title').textContent='Ventas esta semana';}
-  else if(periodo==='mes'){const dim=new Date(hoy.getFullYear(),hoy.getMonth()+1,0).getDate();for(let d=1;d<=dim;d++){const dd=`${hoy.getFullYear()}-${String(hoy.getMonth()+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;labels.push(d);data.push(DB.ventas.filter(v=>v.fecha===dd).reduce((s,v)=>s+v.total,0));}document.getElementById('rep-chart-title').textContent='Ventas este mes';}
-  else{for(let i=2;i>=0;i--){const m=new Date(hoy.getFullYear(),hoy.getMonth()-i,1);const mk=`${m.getFullYear()}-${String(m.getMonth()+1).padStart(2,'0')}`;labels.push(m.toLocaleDateString('es-CO',{month:'short',year:'2-digit'}));data.push(DB.ventas.filter(v=>v.fecha.startsWith(mk)).reduce((s,v)=>s+v.total,0));}document.getElementById('rep-chart-title').textContent='Últimos 3 meses';}
+  const hoy=new Date();let desde,labels=[],data=[],fechasPeriodo=[];
+  if(periodo==='semana'){desde=new Date(hoy);desde.setDate(desde.getDate()-6);for(let i=6;i>=0;i--){const d=new Date(hoy);d.setDate(d.getDate()-i);const fd=localDateStr(d);fechasPeriodo.push(fd);labels.push(['Dom','Lun','Mar','Mié','Jue','Vie','Sáb'][d.getDay()]);data.push(DB.ventas.filter(v=>v.fecha===fd).reduce((s,v)=>s+v.total,0));}document.getElementById('rep-chart-title').textContent='Ventas esta semana';}
+  else if(periodo==='mes'){const dim=new Date(hoy.getFullYear(),hoy.getMonth()+1,0).getDate();for(let d=1;d<=dim;d++){const dd=`${hoy.getFullYear()}-${String(hoy.getMonth()+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;fechasPeriodo.push(dd);labels.push(d);data.push(DB.ventas.filter(v=>v.fecha===dd).reduce((s,v)=>s+v.total,0));}document.getElementById('rep-chart-title').textContent='Ventas este mes';}
+  else{for(let i=2;i>=0;i--){const m=new Date(hoy.getFullYear(),hoy.getMonth()-i,1);const mk=`${m.getFullYear()}-${String(m.getMonth()+1).padStart(2,'0')}`;fechasPeriodo.push(mk);labels.push(m.toLocaleDateString('es-CO',{month:'short',year:'2-digit'}));data.push(DB.ventas.filter(v=>v.fecha.startsWith(mk)).reduce((s,v)=>s+v.total,0));}document.getElementById('rep-chart-title').textContent='Últimos 3 meses';}
+  // Ventas del PERÍODO seleccionado (antes esto mostraba DB.ventas.length, el total histórico completo,
+  // sin importar qué período estuviera seleccionado — inconsistente con "Total Período" de al lado).
+  const ventasDelPeriodo=periodo==='3meses'
+    ? DB.ventas.filter(v=>fechasPeriodo.some(mk=>v.fecha.startsWith(mk)))
+    : DB.ventas.filter(v=>fechasPeriodo.includes(v.fecha));
   const ctx=document.getElementById('chartReportes').getContext('2d');
   if(chartRefs.crep)chartRefs.crep.destroy();
   chartRefs.crep=new Chart(ctx,{type:'line',data:{labels,datasets:[{label:'Ventas',data,fill:true,backgroundColor:'rgba(214,31,38,0.08)',borderColor:'#d61f26',tension:0.4,pointBackgroundColor:'#d61f26',pointRadius:4}]},options:{plugins:{legend:{display:false}},scales:{y:{ticks:{color:'#6b7785',callback:v=>'$'+Math.round(v/1000)+'K'},grid:{color:'rgba(15,30,45,0.06)'}},x:{ticks:{color:'#6b7785'},grid:{display:false}}}}});
   const tot=data.reduce((s,v)=>s+v,0);
   document.getElementById('kpi-reportes').innerHTML=`
     <div class="kpi-card kpi-green"><div class="kpi-label">Total Período</div><div class="kpi-val">${fmt(tot)}</div></div>
-    <div class="kpi-card kpi-blue"><div class="kpi-label"># Ventas</div><div class="kpi-val">${DB.ventas.length}</div></div>
+    <div class="kpi-card kpi-blue"><div class="kpi-label"># Ventas</div><div class="kpi-val">${ventasDelPeriodo.length}</div></div>
     <div class="kpi-card kpi-yellow"><div class="kpi-label">Mejor Día</div><div class="kpi-val">${fmt(Math.max(...data,0))}</div></div>
     <div class="kpi-card kpi-red"><div class="kpi-label">Prom. Diario</div><div class="kpi-val">${fmt(data.filter(d=>d>0).length?tot/data.filter(d=>d>0).length:0)}</div></div>`;
-  const cm={};DB.ventas.forEach(v=>v.items.forEach(i=>{const p=DB.productos.find(x=>x.id===i.prodId);const c=p?p.cat:'Sin categoría';if(!cm[c])cm[c]={c:0,t:0};cm[c].c+=i.qty;cm[c].t+=i.subtotal;}));
-  const gtot=DB.ventas.reduce((s,v)=>s+v.total,0);
-  document.getElementById('tabla-rep-cat').innerHTML=Object.entries(cm).sort((a,b)=>b[1].t-a[1].t).map(([cat,d])=>`<tr><td style="font-weight:600">${cat}</td><td>${d.c}</td><td style="font-weight:800;color:var(--accent)">${fmt(d.t)}</td><td><span style="color:var(--green)">${((d.t/Math.max(gtot,1))*100).toFixed(1)}%</span></td></tr>`).join('')||'<tr class="empty-row"><td colspan="4">Sin datos</td></tr>';
+  const cm={};ventasDelPeriodo.forEach(v=>v.items.forEach(i=>{const p=DB.productos.find(x=>x.id===i.prodId);const c=p?p.cat:'Sin categoría';if(!cm[c])cm[c]={c:0,t:0};cm[c].c+=i.qty;cm[c].t+=i.subtotal;}));
+  const gtot=ventasDelPeriodo.reduce((s,v)=>s+v.total,0);
+  document.getElementById('tabla-rep-cat').innerHTML=Object.entries(cm).sort((a,b)=>b[1].t-a[1].t).map(([cat,d])=>`<tr><td style="font-weight:600">${esc(cat)}</td><td>${d.c}</td><td style="font-weight:800;color:var(--accent)">${fmt(d.t)}</td><td><span style="color:var(--green)">${((d.t/Math.max(gtot,1))*100).toFixed(1)}%</span></td></tr>`).join('')||'<tr class="empty-row"><td colspan="4">Sin datos</td></tr>';
 }
 
 // ============================================================
