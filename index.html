@@ -1413,10 +1413,15 @@ function guardarProducto(){if(currentRole==='vendedor'&&!puede('productos_editar
   }
   const precio=numeroDesdeInput('p-precio'), costo=numeroDesdeInput('p-costo');
   if(precio<0||costo<0){toast('El precio y el costo no pueden ser negativos',true);return;}
+  const codigoInput=document.getElementById('p-codigo').value.trim();
+  const idActual=editProdIdx!==null?DB.productos[editProdIdx].id:null;
+  if(codigoInput && DB.productos.some(p=>p.codigo===codigoInput && p.id!==idActual)){
+    toast(`El código "${codigoInput}" ya lo usa otro producto — usa uno distinto`,true);return;
+  }
   // El stock NUNCA se toma del input al editar (aunque alguien fuerce el campo por consola) —
   // todo cambio de cantidad debe pasar por "Ingresar Mercancía" para quedar en el historial.
   const stockFinal=editProdIdx!==null?DB.productos[editProdIdx].stock:(parseInt(document.getElementById('p-stock').value)||0);
-  const prod={id:editProdIdx!==null?DB.productos[editProdIdx].id:'P'+Date.now(),codigo:document.getElementById('p-codigo').value||'KSM-'+Date.now(),nombre,cat,precio,costo,stock:stockFinal,min:parseInt(document.getElementById('p-min').value)||2,desc:document.getElementById('p-desc').value};
+  const prod={id:editProdIdx!==null?DB.productos[editProdIdx].id:'P'+Date.now(),codigo:codigoInput||'KSM-'+Date.now(),nombre,cat,precio,costo,stock:stockFinal,min:parseInt(document.getElementById('p-min').value)||2,desc:document.getElementById('p-desc').value};
   if(editProdIdx!==null)DB.productos[editProdIdx]=prod;else DB.productos.push(prod);
   cerrarModal('modal-producto');renderProductos();refreshSelectores();
   if(precio>0&&precio<costo)toast(`⚠️ ${nombre} guardado, pero el precio de venta quedó por debajo del costo`,true);
@@ -2236,6 +2241,10 @@ function guardarAbonoCXC(){
   const saldo=saldoPendienteCXC(c);
   if(!monto||monto<=0){toast('Ingresa un monto de abono válido',true);return;}
   if(monto>saldo+1){toast(`El abono (${fmt(monto)}) no puede ser mayor al saldo pendiente (${fmt(saldo)})`,true);return;}
+  if(fecha>today()){toast('La fecha del abono no puede ser futura',true);return;}
+  if(c.fechaVenta && fecha<c.fechaVenta){toast(`La fecha del abono no puede ser anterior a la venta (${c.fechaVenta})`,true);return;}
+  const cajaCerrada=DB.cierres.find(cc=>cc.fecha===fecha);
+  if(cajaCerrada && !confirm(`⚠️ La caja del ${fecha} YA FUE CERRADA. Si registras este abono ahora, el PDF de ese cierre quedará desactualizado. ¿Continuar de todas formas?`))return;
   const now=new Date();
   DB.abonosCxc.push({
     id:'AB'+Date.now()+'-'+Math.random().toString(36).slice(2,7),
@@ -2449,6 +2458,7 @@ function construirRegistroCierre(fecha,d,tipo){
 function confirmarCierreCaja(){
   if(currentRole==='vendedor'&&!puede('cierre_cerrar')){toast('No tienes permiso para cerrar la caja',true);return;}
   const fecha=document.getElementById('cierre-fecha').value||today();
+  if(fecha>today()){toast('No puedes cerrar una fecha futura',true);return;}
   const d=calcularDatosCierre(fecha);
   const registro=construirRegistroCierre(fecha,d,'manual');
   const idx=DB.cierres.findIndex(c=>c.fecha===fecha);
