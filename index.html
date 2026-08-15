@@ -1178,6 +1178,15 @@ function esc(s){
   if(s===null||s===undefined)return '';
   return String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 }
+// Evita "inyección de fórmulas" en Excel: si un nombre de producto, proveedor, cliente, etc.
+// empieza con =, +, -, @ o tab, Excel podría interpretarlo como fórmula al abrir el archivo
+// (ej. alguien nombra un producto "=cmd|'/c calc'!A1"). Se le antepone un apóstrofe para que
+// Excel lo trate siempre como texto plano, nunca como fórmula.
+function csvSafe(s){
+  if(s===null||s===undefined)return '';
+  const str=String(s);
+  return /^[=+\-@\t\r]/.test(str) ? "'"+str : str;
+}
 // Fecha LOCAL (no UTC) en formato YYYY-MM-DD para un Date cualquiera.
 // Usar siempre esta función (o today() para "ahora") en vez de .toISOString().split('T')[0],
 // que devuelve la fecha en UTC y desfasa el día en horas de la noche (bug real, ya corregido).
@@ -1494,9 +1503,9 @@ function exportarInventarioExcel(){
   const productos=productosParaExportar();
   if(!productos.length){toast('No hay productos en el catálogo para exportar',true);return;}
   const filas=productos.map(p=>({
-    'Código':p.codigo,
-    'Producto':p.nombre,
-    'Categoría':p.cat,
+    'Código':csvSafe(p.codigo),
+    'Producto':csvSafe(p.nombre),
+    'Categoría':csvSafe(p.cat),
     'Stock en Sistema':p.stock,
     'Conteo Físico':'',
     'Diferencia':''
@@ -1577,9 +1586,9 @@ function exportarMovimientosExcel(){
   if(typeof XLSX==='undefined'){toast('No se pudo cargar el módulo de Excel. Revisa tu conexión e intenta de nuevo.',true);return;}
   if(!DB.movimientos.length){toast('No hay movimientos registrados para exportar',true);return;}
   const filas=[...DB.movimientos].reverse().map(m=>({
-    'Fecha':m.fecha,'Hora':m.hora,'Producto':m.producto,'Tipo':m.tipo,'Cantidad':m.cantidad,
+    'Fecha':m.fecha,'Hora':m.hora,'Producto':csvSafe(m.producto),'Tipo':csvSafe(m.tipo),'Cantidad':m.cantidad,
     'Costo Unitario':m.costoUnitario||'','Valor Total':m.costoUnitario?m.cantidad*m.costoUnitario:'',
-    'Proveedor':m.proveedor||'','Referencia':m.ref||'','Usuario':m.user||''
+    'Proveedor':csvSafe(m.proveedor||''),'Referencia':csvSafe(m.ref||''),'Usuario':csvSafe(m.user||'')
   }));
   const ws=XLSX.utils.json_to_sheet(filas);
   ws['!cols']=[{wch:12},{wch:8},{wch:30},{wch:18},{wch:10},{wch:14},{wch:14},{wch:20},{wch:16},{wch:12}];
