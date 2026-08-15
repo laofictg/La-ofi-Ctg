@@ -1257,9 +1257,9 @@ function renderDashboard(){
   const ultimas=[...DB.ventas].reverse().slice(0,8);
   document.getElementById('tabla-ultimas-ventas').innerHTML=ultimas.map(v=>`<tr>
     <td><span class="badge badge-sky">${v.id}</span></td>
-    <td style="font-weight:600">${v.cliente}</td>
-    <td style="font-size:12px;color:var(--text2)">${v.items.map(i=>i.nombre.substring(0,16)).join(', ')}</td>
-    <td><span class="badge badge-green">${v.pago}</span></td>
+    <td style="font-weight:600">${esc(v.cliente)}</td>
+    <td style="font-size:12px;color:var(--text2)">${v.items.map(i=>esc(i.nombre.substring(0,16))).join(', ')}</td>
+    <td><span class="badge badge-green">${esc(v.pago)}</span></td>
     <td style="font-weight:800;color:var(--accent)">${fmt(v.total)}</td>
     <td style="font-size:12px">${v.fecha} ${v.hora}</td>
     <td><div class="action-btns">
@@ -1420,8 +1420,9 @@ function guardarProducto(){if(currentRole==='vendedor'&&!puede('productos_editar
   }
   // El stock NUNCA se toma del input al editar (aunque alguien fuerce el campo por consola) —
   // todo cambio de cantidad debe pasar por "Ingresar Mercancía" para quedar en el historial.
-  const stockFinal=editProdIdx!==null?DB.productos[editProdIdx].stock:(parseInt(document.getElementById('p-stock').value)||0);
-  const prod={id:editProdIdx!==null?DB.productos[editProdIdx].id:'P'+Date.now(),codigo:codigoInput||'KSM-'+Date.now(),nombre,cat,precio,costo,stock:stockFinal,min:parseInt(document.getElementById('p-min').value)||2,desc:document.getElementById('p-desc').value};
+  const stockFinal=editProdIdx!==null?DB.productos[editProdIdx].stock:Math.max(0,parseInt(document.getElementById('p-stock').value)||0);
+  const minFinal=Math.max(0,parseInt(document.getElementById('p-min').value)||2);
+  const prod={id:editProdIdx!==null?DB.productos[editProdIdx].id:'P'+Date.now(),codigo:codigoInput||'KSM-'+Date.now(),nombre,cat,precio,costo,stock:stockFinal,min:minFinal,desc:document.getElementById('p-desc').value};
   if(editProdIdx!==null)DB.productos[editProdIdx]=prod;else DB.productos.push(prod);
   cerrarModal('modal-producto');renderProductos();refreshSelectores();
   if(precio>0&&precio<costo)toast(`⚠️ ${nombre} guardado, pero el precio de venta quedó por debajo del costo`,true);
