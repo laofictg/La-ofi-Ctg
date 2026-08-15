@@ -937,6 +937,9 @@ function puede(key){
 }
 
 let DB = { productos:[], ventas:[], movimientos:[], clientes:[], cuentasPorCobrar:[], abonosCxc:[], categorias:[], gastos:[], cierres:[], permisosVendedor:{...PERMISOS_DEFAULT_VENDEDOR}, facturaCounter:1000 };
+// IDs eliminados en ESTA sesión que aún no se han confirmado como borrados en la nube.
+// Es la única fuente de verdad para qué borrar al sincronizar (ver syncTablaCompleta).
+let DB_ELIMINADOS = { productos:[], ventas:[], ventaItems:[], ventaPagos:[], cuentasPorCobrar:[], gastos:[] };
 let carrito = [], editProdIdx = null, currentFactura = null, ventaAEliminarId = null, chartRefs = {};
 let pagoSecundarioActivo = false, cxcAbonoId = null;
 const FINANCIERAS = ['Cash24/7','RENTINGCEL','Addi','Sistecrédito','Cupo Brilla','Banco de Bogotá'];
@@ -970,19 +973,25 @@ try {
 // fila se sincroniza por su propio id, no por un objeto gigante.
 // ============================================================
 
-// Sincroniza una tabla completa contra un arreglo local: upsert de todas
-// las filas locales + borra en la nube las que ya no existan localmente.
-async function syncTablaCompleta(tabla, filas, idCol){
+// Sincroniza una tabla: upsert de todas las filas locales, y borra en la nube
+// SOLO los ids que se le pasan explícitamente en idsABorrar.
+//
+// IMPORTANTE — por qué ya no se borra "lo que falte" en el arreglo local:
+// Con 2+ dispositivos conectados (ej. admin en PC + vendedor en celular), cada uno
+// carga los datos una sola vez al iniciar sesión y nunca se refresca solo. Si se
+// borrara todo lo que el arreglo local no conociera, un dispositivo con datos
+// desactualizados borraría de la nube cualquier producto/venta/gasto que el OTRO
+// dispositivo hubiera agregado mientras tanto — sin darse cuenta, sin advertencia,
+// cada vez que guardara cualquier cosa. Esto se confirmó como un bug real y grave.
+// Ahora cada eliminación debe venir de una acción explícita del usuario (ver
+// DB._eliminados más abajo), nunca de una comparación de "qué falta".
+async function syncTablaCompleta(tabla, filas, idCol, idsABorrar){
   if(filas.length){
     const { error } = await supabaseClient.from(tabla).upsert(filas, { onConflict: idCol });
     if(error) throw error;
   }
-  const idsLocales = new Set(filas.map(f=>f[idCol]));
-  const { data: remotos, error: errSel } = await supabaseClient.from(tabla).select(idCol);
-  if(errSel) throw errSel;
-  const aBorrar = (remotos||[]).map(r=>r[idCol]).filter(id=>!idsLocales.has(id));
-  if(aBorrar.length){
-    const { error: errDel } = await supabaseClient.from(tabla).delete().in(idCol, aBorrar);
+  if(idsABorrar && idsABorrar.length){
+    const { error: errDel } = await supabaseClient.from(tabla).delete().in(idCol, idsABorrar);
     if(errDel) throw errDel;
   }
 }
@@ -1015,26 +1024,41 @@ async function saveState(){
       });
     });
 
+    // Ids a borrar de esta vuelta (se toma una foto ahora; si algo nuevo se elimina
+    // mientras esta función está en pleno vuelo, quedará para la siguiente llamada).
+    const idsProdBorrar=[...DB_ELIMINADOS.productos];
+    const idsVentasBorrar=[...DB_ELIMINADOS.ventas];
+    const idsItemsBorrar=[...DB_ELIMINADOS.ventaItems];
+    const idsPagosBorrar=[...DB_ELIMINADOS.ventaPagos];
+    const idsCxcBorrar=[...DB_ELIMINADOS.cuentasPorCobrar];
+    const idsGastosBorrar=[...DB_ELIMINADOS.gastos];
+
     // Primero categorías, clientes y productos (referenciados por FK de ventas/movimientos).
     // Si productos falla, ventas/items podrían fallar también por depender del FK — es inevitable,
     // pero ya no bloquea a permisos, cierres, gastos, etc. que no tienen relación con eso.
     await intentar('categorias', syncTablaCompleta('categorias', DB.categorias.map(nombre=>({nombre})), 'nombre'));
     await intentar('clientes', syncTablaCompleta('clientes', DB.clientes.map(c=>({id:c.id, nombre:c.nombre, cedula:c.cedula||null, telefono:c.telefono||null, email:c.email||null, direccion:c.dir||null})), 'id'));
-    await intentar('productos', syncTablaCompleta('productos', DB.productos.map(p=>({id:p.id, codigo:p.codigo||null, nombre:p.nombre, categoria:p.cat||null, precio:p.precio, costo:p.costo, stock:p.stock, stock_minimo:p.min||0, descripcion:p.desc||null})), 'id'));
-    await intentar('ventas', syncTablaCompleta('ventas', filasVentas, 'id'));
-    await intentar('venta_items', syncTablaCompleta('venta_items', filasItems, 'id'));
-    await intentar('venta_pagos', syncTablaCompleta('venta_pagos', filasPagos, 'id'));
+    await intentar('productos', syncTablaCompleta('productos', DB.productos.map(p=>({id:p.id, codigo:p.codigo||null, nombre:p.nombre, categoria:p.cat||null, precio:p.precio, costo:p.costo, stock:p.stock, stock_minimo:p.min||0, descripcion:p.desc||null})), 'id', idsProdBorrar));
+    if(!fallos.includes('productos')) DB_ELIMINADOS.productos=DB_ELIMINADOS.productos.filter(id=>!idsProdBorrar.includes(id));
+    await intentar('ventas', syncTablaCompleta('ventas', filasVentas, 'id', idsVentasBorrar));
+    if(!fallos.includes('ventas')) DB_ELIMINADOS.ventas=DB_ELIMINADOS.ventas.filter(id=>!idsVentasBorrar.includes(id));
+    await intentar('venta_items', syncTablaCompleta('venta_items', filasItems, 'id', idsItemsBorrar));
+    if(!fallos.includes('venta_items')) DB_ELIMINADOS.ventaItems=DB_ELIMINADOS.ventaItems.filter(id=>!idsItemsBorrar.includes(id));
+    await intentar('venta_pagos', syncTablaCompleta('venta_pagos', filasPagos, 'id', idsPagosBorrar));
+    if(!fallos.includes('venta_pagos')) DB_ELIMINADOS.ventaPagos=DB_ELIMINADOS.ventaPagos.filter(id=>!idsPagosBorrar.includes(id));
     // cuentas_por_cobrar debe ir antes que abonos_cxc: éste depende de aquél por llave foránea (cxc_id).
-    await intentar('cuentas_por_cobrar', syncTablaCompleta('cuentas_por_cobrar', DB.cuentasPorCobrar.map(c=>({id:c.id, venta_id:c.ventaId||null, cliente_nombre:c.cliente, financiera:c.financiera||null, es_directo:!!c.esDirecto, monto:c.monto, fecha_venta:c.fechaVenta||null, estado:c.estado, fecha_cobro:c.fechaCobro||null})), 'id'));
+    await intentar('cuentas_por_cobrar', syncTablaCompleta('cuentas_por_cobrar', DB.cuentasPorCobrar.map(c=>({id:c.id, venta_id:c.ventaId||null, cliente_nombre:c.cliente, financiera:c.financiera||null, es_directo:!!c.esDirecto, monto:c.monto, fecha_venta:c.fechaVenta||null, estado:c.estado, fecha_cobro:c.fechaCobro||null})), 'id', idsCxcBorrar));
+    if(!fallos.includes('cuentas_por_cobrar')) DB_ELIMINADOS.cuentasPorCobrar=DB_ELIMINADOS.cuentasPorCobrar.filter(id=>!idsCxcBorrar.includes(id));
     await intentar('abonos_cxc', syncTablaCompleta('abonos_cxc', DB.abonosCxc.map(a=>({id:a.id, cxc_id:a.cxcId, monto:a.monto, metodo:a.metodo, fecha:a.fecha, hora:a.hora||null, usuario:a.usuario||null})), 'id'));
     // El resto de tablas, sin dependencias entre sí ni con lo anterior — cada una vive o muere sola.
     await Promise.all([
       intentar('movimientos', syncTablaCompleta('movimientos', DB.movimientos.map(m=>({id:m.id, fecha:m.fecha, hora:m.hora, producto_id:(m.prodId && DB.productos.some(p=>p.id===m.prodId)) ? m.prodId : null, producto_nombre:m.producto, tipo:m.tipo, cantidad:m.cantidad, referencia:m.ref||null, usuario:m.user||null, proveedor:m.proveedor||null, costo_unitario:m.costoUnitario||null})), 'id')),
-      intentar('gastos', syncTablaCompleta('gastos', DB.gastos.map(g=>({id:g.id, descripcion:g.descripcion, monto:g.monto, fecha:g.fecha, hora:g.hora})), 'id')),
+      intentar('gastos', syncTablaCompleta('gastos', DB.gastos.map(g=>({id:g.id, descripcion:g.descripcion, monto:g.monto, fecha:g.fecha, hora:g.hora})), 'id', idsGastosBorrar)),
       intentar('cierres', syncTablaCompleta('cierres', DB.cierres.map(c=>({id:c.id, fecha:c.fecha, cerrado_en:c.cerradoEn||null, tipo:c.tipo, efectivo:c.efectivo||0, transferencia:c.transferencia||0, tarjeta:c.tarjeta||0, credito:c.credito||0, gastos:c.gastos||0, cobros_cartera:c.cobrosCartera||0, neto_caja:c.netoCaja||0, caja_principal:c.cajaPrincipal||0, ventas_count:c.ventasCount||0, total_ventas:c.totalVentas||0, detalle_json:c.detalle||null})), 'id')),
       intentar('permisos_vendedor', savePermisos()),
       intentar('config', supabaseClient.from('config').update({ factura_counter: DB.facturaCounter }).eq('id',1)),
     ]);
+    if(!fallos.includes('gastos')) DB_ELIMINADOS.gastos=DB_ELIMINADOS.gastos.filter(id=>!idsGastosBorrar.includes(id));
     if(fallos.length){ toast(`⚠️ No se pudo guardar en la nube: ${fallos.join(', ')}`,true); }
   } catch(e){ console.error('Error guardando en la nube:', e); toast('⚠️ No se pudo guardar en la nube',true); }
   guardando = false;
@@ -1308,7 +1332,11 @@ function confirmarEliminarVenta(){
     DB.movimientos.push({id:'M'+Date.now()+'-'+Math.random().toString(36).slice(2,7),fecha:today(),hora:now.toTimeString().slice(0,5),producto:item.nombre,prodId:item.prodId,tipo:'Anulación de venta',cantidad:item.qty,ref:'Eliminado: '+v.id,user:'Admin'});
   });
   DB.ventas.splice(idx,1);
+  DB_ELIMINADOS.ventas.push(v.id);
+  (v.items||[]).forEach((it,i)=>DB_ELIMINADOS.ventaItems.push(v.id+'-i'+i));
+  (v.pagos||[]).forEach((p,i)=>DB_ELIMINADOS.ventaPagos.push(v.id+'-p'+i));
   // Eliminar cuentas por cobrar asociadas a esta venta (ya se confirmó arriba que ninguna tiene abonos)
+  DB_ELIMINADOS.cuentasPorCobrar.push(...DB.cuentasPorCobrar.filter(c=>c.ventaId===v.id).map(c=>c.id));
   DB.cuentasPorCobrar=DB.cuentasPorCobrar.filter(c=>c.ventaId!==v.id);
   ventaAEliminarId=null;
   cerrarModal('modal-confirm-venta');
@@ -1406,7 +1434,7 @@ function eliminarProducto(idx){if(currentRole==='vendedor'&&!puede('productos_ed
     const now=new Date();
     DB.movimientos.push({id:'M'+Date.now()+'-'+Math.random().toString(36).slice(2,7),fecha:today(),hora:now.toTimeString().slice(0,5),producto:p.nombre,prodId:p.id,tipo:'Ajuste negativo',cantidad:p.stock,ref:'Producto eliminado del catálogo',user:'Admin'});
   }
-  DB.productos.splice(idx,1);renderProductos();refreshSelectores();toast('🗑️ Producto eliminado');saveState();}
+  DB.productos.splice(idx,1);DB_ELIMINADOS.productos.push(p.id);renderProductos();refreshSelectores();toast('🗑️ Producto eliminado');saveState();}
 
 // ============================================================
 // INVENTARIO
@@ -2271,6 +2299,7 @@ function eliminarGasto(id){
   if(!g)return;
   if(!confirm(`¿Eliminar el gasto "${g.descripcion}" de ${fmt(g.monto)}? Esto aumentará el saldo de Caja Principal.`))return;
   DB.gastos=DB.gastos.filter(x=>x.id!==id);
+  DB_ELIMINADOS.gastos.push(id);
   saveState();renderCierre();toast('🗑️ Gasto eliminado');
 }
 function calcularDatosCierre(fecha){
