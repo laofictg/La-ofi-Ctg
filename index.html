@@ -707,7 +707,7 @@
       </div>
       <div class="search-row"><input class="search-input" type="text" id="search-cli" placeholder="🔍 Buscar cliente..." oninput="renderClientes()"></div>
       <div class="card">
-        <table><thead><tr><th>Nombre</th><th>Cédula/NIT</th><th>Teléfono</th><th># Compras</th><th>Total Comprado</th><th>Última Compra</th></tr></thead>
+        <table><thead><tr><th>Nombre</th><th>Cédula/NIT</th><th>Teléfono</th><th># Compras</th><th>Total Comprado</th><th>Última Compra</th><th>Acciones</th></tr></thead>
         <tbody id="tabla-clientes"></tbody></table>
       </div>
     </div>
@@ -800,7 +800,7 @@
 <!-- MODAL CLIENTE -->
 <div class="modal-overlay" id="modal-cliente">
   <div class="modal">
-    <div class="modal-header"><span class="modal-title">👤 Nuevo Cliente</span><button class="close-btn" onclick="cerrarModal('modal-cliente')">✕</button></div>
+    <div class="modal-header"><span class="modal-title" id="modal-cli-title">👤 Nuevo Cliente</span><button class="close-btn" onclick="cerrarModal('modal-cliente')">✕</button></div>
     <div class="form-grid form-grid-2">
       <div class="form-group"><label>Nombre Completo</label><input type="text" id="c-nombre" placeholder="Juan Pérez"></div>
       <div class="form-group"><label>Cédula / NIT</label><input type="text" id="c-cedula" placeholder="123456789"></div>
@@ -951,7 +951,7 @@ let DB = { productos:[], ventas:[], movimientos:[], clientes:[], cuentasPorCobra
 // IDs eliminados en ESTA sesión que aún no se han confirmado como borrados en la nube.
 // Es la única fuente de verdad para qué borrar al sincronizar (ver syncTablaCompleta).
 let DB_ELIMINADOS = { productos:[], ventas:[], ventaItems:[], ventaPagos:[], cuentasPorCobrar:[], gastos:[] };
-let carrito = [], editProdIdx = null, currentFactura = null, ventaAEliminarId = null, chartRefs = {};
+let carrito = [], editProdIdx = null, editCliIdx = null, currentFactura = null, ventaAEliminarId = null, chartRefs = {};
 let pagoSecundarioActivo = false, cxcAbonoId = null;
 const FINANCIERAS = ['Cash24/7','RENTINGCEL','Addi','Sistecrédito','Cupo Brilla','Banco de Bogotá'];
 
@@ -2741,16 +2741,45 @@ function renderClientes(){
     const vs=DB.ventas.filter(v=> (c.cedula && v.cedula) ? v.cedula===c.cedula : v.cliente===c.nombre);
     const tot=vs.reduce((s,v)=>s+v.total,0);
     const ult=vs.length?vs[vs.length-1].fecha:'—';
-    return `<tr><td style="font-weight:700">${esc(c.nombre)}</td><td style="color:var(--text2)">${esc(c.cedula)||'—'}</td><td>${esc(c.telefono)||'—'}</td><td style="text-align:center;font-weight:700">${vs.length}</td><td style="font-weight:800;color:var(--accent)">${fmt(tot)}</td><td>${ult}</td></tr>`;
-  }).join('')||'<tr class="empty-row"><td colspan="6">Sin clientes</td></tr>';
+    const idxReal=DB.clientes.indexOf(c);
+    return `<tr><td style="font-weight:700">${esc(c.nombre)}</td><td style="color:var(--text2)">${esc(c.cedula)||'—'}</td><td>${esc(c.telefono)||'—'}</td><td style="text-align:center;font-weight:700">${vs.length}</td><td style="font-weight:800;color:var(--accent)">${fmt(tot)}</td><td>${ult}</td><td><div class="action-btns"><button class="btn btn-outline btn-sm" onclick="editarCliente(${idxReal})">✏️</button></div></td></tr>`;
+  }).join('')||'<tr class="empty-row"><td colspan="7">Sin clientes</td></tr>';
+  aplicarPermisosRol();
 }
-function abrirModalCliente(){if(currentRole==='vendedor'&&!puede('clientes_editar')){toast('No tienes permiso para agregar clientes',true);return;}['c-nombre','c-cedula','c-tel','c-email','c-dir'].forEach(id=>document.getElementById(id).value='');abrirModal('modal-cliente');}
-function guardarCliente(){
+function abrirModalCliente(){
   if(currentRole==='vendedor'&&!puede('clientes_editar')){toast('No tienes permiso para agregar clientes',true);return;}
+  editCliIdx=null;
+  document.getElementById('modal-cli-title').textContent='👤 Nuevo Cliente';
+  ['c-nombre','c-cedula','c-tel','c-email','c-dir'].forEach(id=>document.getElementById(id).value='');
+  abrirModal('modal-cliente');
+}
+function editarCliente(idx){
+  if(currentRole==='vendedor'&&!puede('clientes_editar')){toast('No tienes permiso para editar clientes',true);return;}
+  editCliIdx=idx;
+  const c=DB.clientes[idx];
+  document.getElementById('modal-cli-title').textContent='✏️ Editar Cliente';
+  document.getElementById('c-nombre').value=c.nombre;
+  document.getElementById('c-cedula').value=c.cedula||'';
+  document.getElementById('c-tel').value=c.telefono||'';
+  document.getElementById('c-email').value=c.email||'';
+  document.getElementById('c-dir').value=c.dir||'';
+  abrirModal('modal-cliente');
+}
+function guardarCliente(){
+  if(currentRole==='vendedor'&&!puede('clientes_editar')){toast('No tienes permiso para modificar clientes',true);return;}
   const nombre=document.getElementById('c-nombre').value.trim();
   if(!nombre){toast('El nombre es obligatorio',true);return;}
-  DB.clientes.push({id:'C'+Date.now(),nombre,cedula:document.getElementById('c-cedula').value.trim(),telefono:document.getElementById('c-tel').value.trim(),email:document.getElementById('c-email').value.trim(),dir:document.getElementById('c-dir').value.trim()});
-  cerrarModal('modal-cliente');renderClientes();toast('✅ Cliente registrado');
+  const datos={nombre,cedula:document.getElementById('c-cedula').value.trim(),telefono:document.getElementById('c-tel').value.trim(),email:document.getElementById('c-email').value.trim(),dir:document.getElementById('c-dir').value.trim()};
+  if(editCliIdx!==null){
+    // Al editar, se conserva el mismo id — así las ventas/CxC ya ligadas a este cliente
+    // por cédula no se ven afectadas, y solo cambian los datos de contacto/nombre.
+    DB.clientes[editCliIdx]={...DB.clientes[editCliIdx],...datos};
+    toast('✅ Cliente actualizado');
+  } else {
+    DB.clientes.push({id:'C'+Date.now(),...datos});
+    toast('✅ Cliente registrado');
+  }
+  cerrarModal('modal-cliente');renderClientes();
   saveState();
 }
 
@@ -2885,6 +2914,9 @@ function aplicarPermisosRol(){
   if(btnGasto) btnGasto.style.display = (esVendedor && !puede('cierre_gastos')) ? 'none' : '';
   const btnNuevoCliente = document.querySelector("#page-clientes .btn-primary[onclick=\"abrirModalCliente()\"]");
   if(btnNuevoCliente) btnNuevoCliente.style.display = (esVendedor && !puede('clientes_editar')) ? 'none' : '';
+  document.querySelectorAll('#tabla-clientes .action-btns').forEach(el=>{
+    el.style.display = (esVendedor && !puede('clientes_editar')) ? 'none' : '';
+  });
   const btnCerrarCaja = document.querySelector("#page-cierre .btn-primary[onclick=\"abrirModalCierreCaja()\"]");
   if(btnCerrarCaja) btnCerrarCaja.style.display = (esVendedor && !puede('cierre_cerrar')) ? 'none' : '';
   document.querySelectorAll('[onclick^="pedirEliminarVenta"]').forEach(btn=>{
