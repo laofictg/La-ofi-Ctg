@@ -439,7 +439,6 @@
         <div><div class="page-title">Resumen del Negocio</div><div class="page-sub">Vista general — La Ofi Ctg, Colombia</div></div>
       </div>
       <div class="kpi-grid" id="kpi-grid"></div>
-      <div id="stock-alerts"></div>
       <div class="chart-grid">
         <div class="chart-box"><div class="chart-title">📅 Ventas — Últimos 7 días</div><canvas id="chart7dias" height="160"></canvas></div>
         <div class="chart-box"><div class="chart-title">📦 Top Productos más vendidos</div><canvas id="chartTop5" height="160"></canvas></div>
@@ -1319,8 +1318,6 @@ function renderDashboard(){
     <div class="kpi-card kpi-red"><div class="kpi-label">Stock Bajo</div><div class="kpi-val">${bajos}</div><div class="kpi-sub">con alerta de reabastecimiento</div></div>
     <div class="kpi-card kpi-green"><div class="kpi-label">🏦 En Caja Hoy</div><div class="kpi-val">${fmt(cajaHoy)}</div><div class="kpi-sub">efectivo + tarjeta + transf. + cobros de cartera</div></div>
     <div class="kpi-card kpi-yellow"><div class="kpi-label">📋 Cartera Pendiente</div><div class="kpi-val">${fmt(carteraPendiente)}</div><div class="kpi-sub">por cobrar a financieras</div></div>`;
-  const alertas=DB.productos.filter(p=>p.stock<=p.min);
-  document.getElementById('stock-alerts').innerHTML=alertas.length?`<div class="stock-alert">⚠️ <strong>Alerta:</strong> ${alertas.map(p=>`${esc(p.nombre)} — ${p.stock} uds`).join(' · ')}</div>`:'';
   const ultimas=[...DB.ventas].reverse().slice(0,8);
   document.getElementById('tabla-ultimas-ventas').innerHTML=ultimas.map(v=>`<tr>
     <td><span class="badge badge-sky">${v.id}</span></td>
