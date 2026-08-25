@@ -1989,9 +1989,9 @@ async function finalizarVenta(){
   const asignado=pagos.reduce((s,p)=>s+p.monto,0);
   if(Math.abs(asignado-total)>1){toast(`Los montos asignados (${fmt(asignado)}) no coinciden con el total de la venta (${fmt(total)})`,true);return;}
 
-  const cliente=document.getElementById('f-cliente').value||'Consumidor Final';
-  const cedula=document.getElementById('f-cedula').value;
-  const telefono=document.getElementById('f-telefono').value;
+  const cliente=(document.getElementById('f-cliente').value||'').trim()||'Consumidor Final';
+  const cedula=document.getElementById('f-cedula').value.trim();
+  const telefono=document.getElementById('f-telefono').value.trim();
   const vendedor=document.getElementById('f-vendedor').value.trim();
   const notas=document.getElementById('f-notas').value;
 
@@ -2733,7 +2733,12 @@ function renderClientes(){
   const q=(document.getElementById('search-cli')?.value||'').toLowerCase();
   const f=DB.clientes.filter(c=>!q||c.nombre.toLowerCase().includes(q)||c.cedula.includes(q));
   document.getElementById('tabla-clientes').innerHTML=f.map(c=>{
-    const vs=DB.ventas.filter(v=>v.cliente===c.nombre);
+    // Se cruza por cédula cuando ambos lados la tienen (más confiable: inmune a espacios,
+    // mayúsculas o tildes distintas). Si falta la cédula en alguno de los dos, se usa el
+    // nombre exacto como respaldo (comportamiento anterior, para registros muy viejos).
+    // Bug detectado el 2026-08-26: un cliente con espacio final en el nombre no cruzaba
+    // con sus propias ventas y aparecía con "0 compras" pese a tener facturas reales.
+    const vs=DB.ventas.filter(v=> (c.cedula && v.cedula) ? v.cedula===c.cedula : v.cliente===c.nombre);
     const tot=vs.reduce((s,v)=>s+v.total,0);
     const ult=vs.length?vs[vs.length-1].fecha:'—';
     return `<tr><td style="font-weight:700">${esc(c.nombre)}</td><td style="color:var(--text2)">${esc(c.cedula)||'—'}</td><td>${esc(c.telefono)||'—'}</td><td style="text-align:center;font-weight:700">${vs.length}</td><td style="font-weight:800;color:var(--accent)">${fmt(tot)}</td><td>${ult}</td></tr>`;
@@ -2744,7 +2749,7 @@ function guardarCliente(){
   if(currentRole==='vendedor'&&!puede('clientes_editar')){toast('No tienes permiso para agregar clientes',true);return;}
   const nombre=document.getElementById('c-nombre').value.trim();
   if(!nombre){toast('El nombre es obligatorio',true);return;}
-  DB.clientes.push({id:'C'+Date.now(),nombre,cedula:document.getElementById('c-cedula').value,telefono:document.getElementById('c-tel').value,email:document.getElementById('c-email').value,dir:document.getElementById('c-dir').value});
+  DB.clientes.push({id:'C'+Date.now(),nombre,cedula:document.getElementById('c-cedula').value.trim(),telefono:document.getElementById('c-tel').value.trim(),email:document.getElementById('c-email').value.trim(),dir:document.getElementById('c-dir').value.trim()});
   cerrarModal('modal-cliente');renderClientes();toast('✅ Cliente registrado');
   saveState();
 }
