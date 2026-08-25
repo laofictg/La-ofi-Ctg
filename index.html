@@ -1071,7 +1071,13 @@ async function saveState(){
       intentar('gastos', syncTablaCompleta('gastos', DB.gastos.map(g=>({id:g.id, descripcion:g.descripcion, monto:g.monto, fecha:g.fecha, hora:g.hora})), 'id', idsGastosBorrar)),
       intentar('cierres', syncTablaCompleta('cierres', DB.cierres.map(c=>({id:c.id, fecha:c.fecha, cerrado_en:c.cerradoEn||null, tipo:c.tipo, efectivo:c.efectivo||0, transferencia:c.transferencia||0, tarjeta:c.tarjeta||0, credito:c.credito||0, gastos:c.gastos||0, cobros_cartera:c.cobrosCartera||0, neto_caja:c.netoCaja||0, caja_principal:c.cajaPrincipal||0, ventas_count:c.ventasCount||0, total_ventas:c.totalVentas||0, detalle_json:c.detalle||null})), 'id')),
       intentar('permisos_vendedor', savePermisos()),
-      intentar('config', supabaseClient.from('config').update({ factura_counter: DB.facturaCounter }).eq('id',1)),
+      // NOTA: el contador de facturas (config.factura_counter) NUNCA se escribe aquí.
+      // Es una fuente de verdad compartida entre todos los dispositivos y SOLO debe
+      // modificarse a través de la función atómica increment_factura_counter() en Postgres.
+      // Antes se sobreescribía con el valor local (DB.facturaCounter) en cada guardado,
+      // lo que hacía que un dispositivo con el contador desactualizado (por ejemplo, uno
+      // que llevaba un rato abierto mientras otro facturaba) pisara el contador real y
+      // provocara números de factura duplicados (bug detectado el 2026-08-26).
     ]);
     if(!fallos.includes('gastos')) DB_ELIMINADOS.gastos=DB_ELIMINADOS.gastos.filter(id=>!idsGastosBorrar.includes(id));
     if(fallos.length){ toast(`⚠️ No se pudo guardar en la nube: ${fallos.join(', ')}`,true); }
