@@ -741,7 +741,7 @@
   <div class="modal">
     <div class="modal-header"><span class="modal-title" id="modal-prod-title">📦 Nuevo Producto</span><button class="close-btn" onclick="cerrarModal('modal-producto')">✕</button></div>
     <div class="form-grid">
-      <div class="form-group"><label>Código / Referencia</label><input type="text" id="p-codigo" placeholder="KSM-001"></div>
+      <div class="form-group"><label>Código / Referencia (automático)</label><input type="text" id="p-codigo" placeholder="OF-001"></div>
       <div class="form-group"><label>Nombre del Producto</label><input type="text" id="p-nombre" placeholder="iPhone 15 Pro"></div>
       <div class="form-group"><label>Categoría</label>
         <select id="p-cat" onchange="onCambioCategoriaSelect()"></select>
@@ -1464,8 +1464,19 @@ function onCambioCategoriaSelect(){
   if(sel.value==='__nueva__'){wrap.style.display='flex';document.getElementById('p-cat-nueva').focus();}
   else{wrap.style.display='none';document.getElementById('p-cat-nueva').value='';}
 }
-function abrirModalProducto(){if(currentRole==='vendedor'&&!puede('productos_editar')){toast('No tienes permiso para agregar productos',true);return;}editProdIdx=null;document.getElementById('modal-prod-title').textContent='📦 Nuevo Producto';['p-codigo','p-nombre','p-precio','p-costo','p-stock','p-desc'].forEach(id=>document.getElementById(id).value='');document.getElementById('p-min').value=2;const sInp=document.getElementById('p-stock');sInp.readOnly=false;sInp.title='';poblarSelectCategorias('');abrirModal('modal-producto');}
-function editarProducto(idx){if(currentRole==='vendedor'&&!puede('productos_editar')){toast('No tienes permiso para editar productos',true);return;}editProdIdx=idx;const p=DB.productos[idx];document.getElementById('modal-prod-title').textContent='✏️ Editar Producto';document.getElementById('p-codigo').value=p.codigo;document.getElementById('p-nombre').value=p.nombre;poblarSelectCategorias(p.cat);ponerValorDinero('p-precio',p.precio);ponerValorDinero('p-costo',p.costo);document.getElementById('p-stock').value=p.stock;const sInp=document.getElementById('p-stock');sInp.readOnly=true;sInp.title='El stock no se edita aquí — usa "Ingresar Mercancía" en Inventario para que quede registrado en el historial';document.getElementById('p-min').value=p.min;document.getElementById('p-desc').value=p.desc;abrirModal('modal-producto');}
+// Calcula el siguiente código de producto en secuencia (OF-001, OF-002...), tomando el
+// número más alto ya usado y sumándole 1. Evita los códigos manuales que causaban
+// duplicados y huecos en la numeración (bug detectado y corregido el 2026-08-26).
+function siguienteCodigoProducto(){
+  let maxNum = 0;
+  DB.productos.forEach(p=>{
+    const m = /^OF-(\d+)$/.exec((p.codigo||'').trim());
+    if(m){ const n = parseInt(m[1],10); if(n>maxNum) maxNum = n; }
+  });
+  return 'OF-' + String(maxNum + 1).padStart(3,'0');
+}
+function abrirModalProducto(){if(currentRole==='vendedor'&&!puede('productos_editar')){toast('No tienes permiso para agregar productos',true);return;}editProdIdx=null;document.getElementById('modal-prod-title').textContent='📦 Nuevo Producto';['p-nombre','p-precio','p-costo','p-stock','p-desc'].forEach(id=>document.getElementById(id).value='');const cInp=document.getElementById('p-codigo');cInp.value=siguienteCodigoProducto();cInp.readOnly=true;cInp.title='Se genera automáticamente en secuencia — no se edita aquí';document.getElementById('p-min').value=2;const sInp=document.getElementById('p-stock');sInp.readOnly=false;sInp.title='';poblarSelectCategorias('');abrirModal('modal-producto');}
+function editarProducto(idx){if(currentRole==='vendedor'&&!puede('productos_editar')){toast('No tienes permiso para editar productos',true);return;}editProdIdx=idx;const p=DB.productos[idx];document.getElementById('modal-prod-title').textContent='✏️ Editar Producto';const cInp=document.getElementById('p-codigo');cInp.value=p.codigo;cInp.readOnly=false;cInp.title='';document.getElementById('p-nombre').value=p.nombre;poblarSelectCategorias(p.cat);ponerValorDinero('p-precio',p.precio);ponerValorDinero('p-costo',p.costo);document.getElementById('p-stock').value=p.stock;const sInp=document.getElementById('p-stock');sInp.readOnly=true;sInp.title='El stock no se edita aquí — usa "Ingresar Mercancía" en Inventario para que quede registrado en el historial';document.getElementById('p-min').value=p.min;document.getElementById('p-desc').value=p.desc;abrirModal('modal-producto');}
 function guardarProducto(){if(currentRole==='vendedor'&&!puede('productos_editar')){toast('No tienes permiso para modificar productos',true);return;}
   const nombre=document.getElementById('p-nombre').value.trim();
   if(!nombre){toast('El nombre es obligatorio',true);return;}
@@ -1489,7 +1500,7 @@ function guardarProducto(){if(currentRole==='vendedor'&&!puede('productos_editar
   // todo cambio de cantidad debe pasar por "Ingresar Mercancía" para quedar en el historial.
   const stockFinal=editProdIdx!==null?DB.productos[editProdIdx].stock:Math.max(0,parseInt(document.getElementById('p-stock').value)||0);
   const minFinal=Math.max(0,parseInt(document.getElementById('p-min').value)||2);
-  const prod={id:editProdIdx!==null?DB.productos[editProdIdx].id:'P'+Date.now(),codigo:codigoInput||'KSM-'+Date.now(),nombre,cat,precio,costo,stock:stockFinal,min:minFinal,desc:document.getElementById('p-desc').value};
+  const prod={id:editProdIdx!==null?DB.productos[editProdIdx].id:'P'+Date.now(),codigo:codigoInput||siguienteCodigoProducto(),nombre,cat,precio,costo,stock:stockFinal,min:minFinal,desc:document.getElementById('p-desc').value};
   if(editProdIdx!==null)DB.productos[editProdIdx]=prod;else DB.productos.push(prod);
   cerrarModal('modal-producto');renderProductos();refreshSelectores();
   if(precio>0&&precio<costo)toast(`⚠️ ${nombre} guardado, pero el precio de venta quedó por debajo del costo`,true);
