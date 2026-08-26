@@ -727,7 +727,7 @@
     <!-- CUENTAS POR COBRAR -->
     <div id="page-cxc" class="page">
       <div class="page-header">
-        <div><div class="page-title">📋 Cuentas por Cobrar</div><div class="page-sub">Saldos de ventas a crédito pendientes — financieras y crédito directo con clientes</div></div>
+        <div><div class="page-title">📋 Cuentas por Cobrar</div><div class="page-sub">Saldos de ventas a crédito pendientes — financieras y crédito directo con clientes. En financieras, "Saldo Pendiente" ya viene con la comisión descontada: es lo que en verdad debe entrar al negocio.</div></div>
       </div>
       <div class="kpi-grid" id="kpi-cxc"></div>
       <div class="search-row" style="display:flex;gap:8px;flex-wrap:wrap;">
@@ -2428,9 +2428,19 @@ function abonosDeCXC(cxcId){
   return DB.abonosCxc.filter(a=>a.cxcId===cxcId);
 }
 // Saldo pendiente de una cuenta por cobrar = monto original - suma de sus abonos.
+// Monto que en verdad va a entrar al negocio por esta cuenta por cobrar, ya descontada
+// la comisión de la financiera (si aplica). Crédito Directo (con el cliente, sin financiera)
+// nunca tiene comisión — ahí el monto completo es el que se debe cobrar.
+// Usa el % VIGENTE de la financiera (no uno congelado al momento de la venta): si el %
+// cambia después, las cuentas pendientes se recalculan automáticamente al nuevo valor.
+function montoNetoCXC(c){
+  if(c.esDirecto || !c.financiera) return c.monto;
+  const pct = Number(DB.comisionesFinancieras?.[c.financiera])||0;
+  return Math.round((c.monto*(1-pct/100))*100)/100;
+}
 function saldoPendienteCXC(c){
   const abonado = abonosDeCXC(c.id).reduce((s,a)=>s+a.monto,0);
-  return Math.max(0, Math.round((c.monto - abonado)*100)/100);
+  return Math.max(0, Math.round((montoNetoCXC(c) - abonado)*100)/100);
 }
 function estadoCXC(c){
   const saldo = saldoPendienteCXC(c);
@@ -2445,10 +2455,12 @@ function pedirAbonoCXC(id){
   const saldo=saldoPendienteCXC(c);
   if(saldo<=0){toast('Esta cuenta ya está totalmente pagada',true);return;}
   cxcAbonoId=id;
+  const pct=(!c.esDirecto&&c.financiera)?(Number(DB.comisionesFinancieras?.[c.financiera])||0):0;
   document.getElementById('abono-cxc-info').innerHTML=`
     <div style="font-weight:700">${esc(c.cliente)}</div>
     <div style="color:var(--text2);margin-top:2px">Venta ${esc(c.ventaId)} · ${c.esDirecto?'🏠 Crédito Directo':'🏦 '+esc(finLabel(c.financiera))}</div>
-    <div style="margin-top:6px">Saldo pendiente: <strong style="color:var(--accent)">${fmt(saldo)}</strong> de ${fmt(c.monto)} total</div>`;
+    ${pct>0?`<div style="color:var(--text2);font-size:12px;margin-top:2px">Factura: ${fmt(c.monto)} − comisión ${pct}% = neto a cobrar ${fmt(montoNetoCXC(c))}</div>`:''}
+    <div style="margin-top:6px">Saldo pendiente: <strong style="color:var(--accent)">${fmt(saldo)}</strong> de ${fmt(montoNetoCXC(c))} neto</div>`;
   ponerValorDinero('abono-monto', saldo);
   document.getElementById('abono-metodo').selectedIndex=0;
   document.getElementById('abono-fecha').value=today();
@@ -2503,7 +2515,7 @@ function verHistorialAbonos(id){
   const c=DB.cuentasPorCobrar.find(x=>x.id===id);
   if(!c)return;
   const abonos=[...abonosDeCXC(id)].sort((a,b)=>(a.fecha+a.hora).localeCompare(b.fecha+b.hora));
-  document.getElementById('historial-abonos-info').innerHTML=`<strong>${esc(c.cliente)}</strong> · Venta ${c.ventaId} · Total: ${fmt(c.monto)} · Saldo pendiente: ${fmt(saldoPendienteCXC(c))}`;
+  document.getElementById('historial-abonos-info').innerHTML=`<strong>${esc(c.cliente)}</strong> · Venta ${c.ventaId} · Factura: ${fmt(c.monto)}${!c.esDirecto&&c.financiera?' · Neto a cobrar: '+fmt(montoNetoCXC(c)):''} · Saldo pendiente: ${fmt(saldoPendienteCXC(c))}`;
   document.getElementById('tabla-historial-abonos').innerHTML=abonos.map(a=>`<tr>
     <td style="font-size:12px">${a.fecha} <span style="color:var(--text2)">${a.hora||''}</span></td>
     <td><span class="badge badge-sky">${esc(a.metodo)}</span></td>
@@ -2989,7 +3001,7 @@ function renderCXC(){
     <td style="font-weight:600">${esc(c.cliente)}</td>
     <td>${c.esDirecto?'<span class="badge badge-yellow">🏠 Crédito Directo</span>':`<span class="badge badge-sky">🏦 ${esc(finLabel(c.financiera))}</span>`}</td>
     <td style="color:var(--text2)">${fmt(c.monto)}</td>
-    <td style="font-weight:800;color:var(--accent)">${fmt(saldo)}</td>
+    <td style="font-weight:800;color:var(--accent)">${fmt(saldo)}${(!c.esDirecto&&c.financiera&&(Number(DB.comisionesFinancieras?.[c.financiera])||0)>0)?`<div style="font-weight:400;font-size:11px;color:var(--text2)">neto ${esc(finLabel(c.financiera))} ${Number(DB.comisionesFinancieras[c.financiera])}%</div>`:''}</td>
     <td style="font-size:12px">${c.fechaVenta}</td>
     <td><span class="badge ${estadoBadge}">${estado}</span></td>
     <td><div class="action-btns">
