@@ -682,6 +682,21 @@
       <div class="card"><div class="card-header"><span class="card-title">Ventas por Categoría</span></div>
         <table><thead><tr><th>Categoría</th><th># Unidades</th><th>Ingresos</th><th>% del Total</th></tr></thead><tbody id="tabla-rep-cat"></tbody></table>
       </div>
+
+      <div class="page-header" style="margin-top:28px;">
+        <div><div class="page-title">💹 Comisiones de Financieras</div><div class="page-sub">Cuánto se descontó realmente por cada financiera — soporte para contabilidad</div></div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+          <input type="date" id="com-desde" style="width:142px;" onchange="renderComisionesReporte()">
+          <input type="date" id="com-hasta" style="width:142px;" onchange="renderComisionesReporte()">
+          <button class="btn btn-outline btn-sm" onclick="exportarComisionesExcel()">📊 Excel</button>
+          <button class="btn btn-outline btn-sm" onclick="exportarComisionesPDF()">📄 PDF</button>
+        </div>
+      </div>
+      <div class="kpi-grid" id="kpi-comisiones"></div>
+      <div class="card">
+        <table><thead><tr><th>Financiera</th><th># Ventas</th><th>Monto Bruto</th><th>% Comisión</th><th>Comisión $</th><th>Neto Real</th></tr></thead>
+        <tbody id="tabla-comisiones-resumen"></tbody></table>
+      </div>
     </div>
 
     <!-- PERMISOS (solo Administrador) -->
@@ -2898,6 +2913,119 @@ function renderReportes(){
   const cm={};ventasDelPeriodo.forEach(v=>v.items.forEach(i=>{const p=DB.productos.find(x=>x.id===i.prodId);const c=p?p.cat:'Sin categoría';if(!cm[c])cm[c]={c:0,t:0};cm[c].c+=i.qty;cm[c].t+=i.subtotal;}));
   const gtot=ventasDelPeriodo.reduce((s,v)=>s+v.total,0);
   document.getElementById('tabla-rep-cat').innerHTML=Object.entries(cm).sort((a,b)=>b[1].t-a[1].t).map(([cat,d])=>`<tr><td style="font-weight:600">${esc(cat)}</td><td>${d.c}</td><td style="font-weight:800;color:var(--accent)">${fmt(d.t)}</td><td><span style="color:var(--green)">${((d.t/Math.max(gtot,1))*100).toFixed(1)}%</span></td></tr>`).join('')||'<tr class="empty-row"><td colspan="4">Sin datos</td></tr>';
+  renderComisionesReporte();
+}
+
+// ============================================================
+// REPORTE DE COMISIONES DE FINANCIERAS — soporte contable
+// Desglosa, por rango de fechas, cuánto se vendió a crédito con cada financiera,
+// cuánto se descontó de comisión (al % VIGENTE, igual que en Ganancia/CxC) y
+// cuánto entró/entrará realmente al negocio. Incluye estado de cobro por factura
+// (Pagado/Parcial/Pendiente) cruzando contra Cuentas por Cobrar.
+function datosComisionesPeriodo(){
+  const desde=document.getElementById('com-desde')?.value||'0000-00-00';
+  const hasta=document.getElementById('com-hasta')?.value||'9999-99-99';
+  const ventasFinanciadas=DB.ventas.filter(v=>v.fecha>=desde&&v.fecha<=hasta&&pagosDeVenta(v).some(p=>p.metodo==='Crédito / Cuotas'&&p.financiera));
+  const detalle=[];
+  ventasFinanciadas.forEach(v=>{
+    pagosDeVenta(v).filter(p=>p.metodo==='Crédito / Cuotas'&&p.financiera).forEach(p=>{
+      const pct=Number(DB.comisionesFinancieras?.[p.financiera])||0;
+      const comision=Math.round(p.monto*(pct/100)*100)/100;
+      const cxc=DB.cuentasPorCobrar.find(c=>c.ventaId===v.id&&c.financiera===p.financiera);
+      detalle.push({ventaId:v.id, fecha:v.fecha, cliente:v.cliente, financiera:p.financiera, monto:p.monto, pct, comision, neto:p.monto-comision, estadoCobro:cxc?estadoCXC(cxc):'—'});
+    });
+  });
+  const porFinanciera={};
+  detalle.forEach(d=>{
+    if(!porFinanciera[d.financiera])porFinanciera[d.financiera]={n:0,bruto:0,comision:0,neto:0,pct:d.pct};
+    const f=porFinanciera[d.financiera];
+    f.n++; f.bruto+=d.monto; f.comision+=d.comision; f.neto+=d.neto;
+  });
+  return {desde,hasta,detalle,porFinanciera};
+}
+function renderComisionesReporte(){
+  const {porFinanciera,detalle}=datosComisionesPeriodo();
+  const totBruto=detalle.reduce((s,d)=>s+d.monto,0);
+  const totComision=detalle.reduce((s,d)=>s+d.comision,0);
+  const totNeto=detalle.reduce((s,d)=>s+d.neto,0);
+  document.getElementById('kpi-comisiones').innerHTML=`
+    <div class="kpi-card kpi-blue"><div class="kpi-label">Monto Bruto Financiado</div><div class="kpi-val">${fmt(totBruto)}</div><div class="kpi-sub">${detalle.length} ventas</div></div>
+    <div class="kpi-card kpi-red"><div class="kpi-label">Total Comisiones</div><div class="kpi-val">${fmt(totComision)}</div><div class="kpi-sub">lo que se quedan las financieras</div></div>
+    <div class="kpi-card kpi-green"><div class="kpi-label">Neto Real Recibido</div><div class="kpi-val">${fmt(totNeto)}</div><div class="kpi-sub">${totBruto>0?((totNeto/totBruto)*100).toFixed(1):0}% del bruto</div></div>`;
+  const filas=Object.entries(porFinanciera).sort((a,b)=>b[1].bruto-a[1].bruto).map(([fin,d])=>`<tr>
+    <td style="font-weight:600">🏦 ${esc(finLabel(fin))}</td>
+    <td style="text-align:center">${d.n}</td>
+    <td>${fmt(d.bruto)}</td>
+    <td style="text-align:center">${d.pct}%</td>
+    <td style="color:var(--red)">-${fmt(d.comision)}</td>
+    <td style="font-weight:800;color:var(--green)">${fmt(d.neto)}</td>
+  </tr>`).join('');
+  document.getElementById('tabla-comisiones-resumen').innerHTML=filas||'<tr class="empty-row"><td colspan="6">Sin ventas financiadas en este período</td></tr>';
+}
+function exportarComisionesExcel(){
+  if(typeof XLSX==='undefined'){toast('No se pudo cargar el módulo de Excel. Revisa tu conexión e intenta de nuevo.',true);return;}
+  const {desde,hasta,porFinanciera,detalle}=datosComisionesPeriodo();
+  if(!detalle.length){toast('No hay ventas financiadas en este período para exportar',true);return;}
+  const resumen=Object.entries(porFinanciera).sort((a,b)=>b[1].bruto-a[1].bruto).map(([fin,d])=>({
+    'Financiera':finLabel(fin),'# Ventas':d.n,'Monto Bruto':d.bruto,'% Comisión':d.pct,'Comisión $':Math.round(d.comision),'Neto Real':Math.round(d.neto)
+  }));
+  const totBruto=detalle.reduce((s,d)=>s+d.monto,0), totComision=detalle.reduce((s,d)=>s+d.comision,0), totNeto=detalle.reduce((s,d)=>s+d.neto,0);
+  resumen.push({'Financiera':'TOTAL','# Ventas':detalle.length,'Monto Bruto':Math.round(totBruto),'% Comisión':'','Comisión $':Math.round(totComision),'Neto Real':Math.round(totNeto)});
+  const detalleFilas=detalle.map(d=>({
+    'Factura':d.ventaId,'Fecha':d.fecha,'Cliente':csvSafe(d.cliente),'Financiera':finLabel(d.financiera),'Monto Bruto':d.monto,'% Comisión':d.pct,'Comisión $':Math.round(d.comision),'Neto Real':Math.round(d.neto),'Estado de Cobro':d.estadoCobro
+  }));
+  const wb=XLSX.utils.book_new();
+  const ws1=XLSX.utils.json_to_sheet(resumen);
+  ws1['!cols']=[{wch:18},{wch:10},{wch:14},{wch:11},{wch:14},{wch:14}];
+  XLSX.utils.book_append_sheet(wb,ws1,'Resumen por Financiera');
+  const ws2=XLSX.utils.json_to_sheet(detalleFilas);
+  ws2['!cols']=[{wch:10},{wch:12},{wch:28},{wch:14},{wch:14},{wch:11},{wch:14},{wch:14},{wch:15}];
+  XLSX.utils.book_append_sheet(wb,ws2,'Detalle por Factura');
+  XLSX.writeFile(wb,`Comisiones_Financieras_${desde}_a_${hasta}.xlsx`);
+  toast('📊 Excel de comisiones descargado');
+}
+function exportarComisionesPDF(){
+  const {desde,hasta,porFinanciera,detalle}=datosComisionesPeriodo();
+  if(!detalle.length){toast('No hay ventas financiadas en este período para exportar',true);return;}
+  const {jsPDF}=window.jspdf;
+  const doc=new jsPDF({unit:'mm',format:'a4'});
+  let y=22;
+  doc.setFillColor(214,31,38);doc.rect(0,0,210,32,'F');
+  doc.addImage(LOGO_SRC,'JPEG',6,5,22,20);
+  doc.setTextColor(255,255,255);doc.setFontSize(15);doc.setFont('helvetica','bold');
+  doc.text('REPORTE DE COMISIONES DE FINANCIERAS',34,15);
+  doc.setFontSize(9);doc.setFont('helvetica','normal');
+  doc.text('La Ofi Ctg — C.C. Los Ejecutivos, Local 23B, Cartagena',34,21);
+  doc.text(`Período: ${desde} a ${hasta}`,196,18,{align:'right'});
+  y=40;
+  const totBruto=detalle.reduce((s,d)=>s+d.monto,0), totComision=detalle.reduce((s,d)=>s+d.comision,0), totNeto=detalle.reduce((s,d)=>s+d.neto,0);
+  doc.setTextColor(0,0,0);doc.setFontSize(9);doc.setFont('helvetica','bold');
+  doc.text(`Monto bruto financiado: ${fmt(totBruto)}   ·   Comisiones: -${fmt(totComision)}   ·   Neto real recibido: ${fmt(totNeto)}`,16,y);
+  y+=10;
+  doc.setFillColor(26,26,26);doc.rect(14,y-5,182,7,'F');
+  doc.setTextColor(255,255,255);doc.setFontSize(8);doc.setFont('helvetica','bold');
+  doc.text('Financiera',16,y);doc.text('# Ventas',90,y,{align:'center'});doc.text('Bruto',125,y,{align:'right'});doc.text('%',145,y,{align:'center'});doc.text('Comisión',165,y,{align:'right'});doc.text('Neto',194,y,{align:'right'});
+  y+=7;doc.setTextColor(0,0,0);doc.setFont('helvetica','normal');
+  Object.entries(porFinanciera).sort((a,b)=>b[1].bruto-a[1].bruto).forEach(([fin,d],i)=>{
+    if(i%2===0){doc.setFillColor(240,242,245);doc.rect(14,y-4.5,182,7,'F');}
+    doc.text(finLabel(fin),16,y);doc.text(String(d.n),90,y,{align:'center'});doc.text(fmt(d.bruto),125,y,{align:'right'});doc.text(d.pct+'%',145,y,{align:'center'});doc.text('-'+fmt(d.comision),165,y,{align:'right'});doc.text(fmt(d.neto),194,y,{align:'right'});
+    y+=7;
+  });
+  y+=8;
+  if(y>260)doc.addPage(),y=20;
+  doc.setFont('helvetica','bold');doc.setFontSize(10);doc.text('Detalle por factura',16,y);y+=7;
+  doc.setFillColor(26,26,26);doc.rect(14,y-5,182,7,'F');
+  doc.setTextColor(255,255,255);doc.setFontSize(7.5);
+  doc.text('Factura',16,y);doc.text('Fecha',34,y);doc.text('Cliente',54,y);doc.text('Financiera',100,y);doc.text('Bruto',130,y,{align:'right'});doc.text('Comisión',155,y,{align:'right'});doc.text('Neto',176,y,{align:'right'});doc.text('Cobro',194,y,{align:'right'});
+  y+=6.5;doc.setTextColor(0,0,0);doc.setFont('helvetica','normal');
+  detalle.forEach((d,i)=>{
+    if(y>280){doc.addPage();y=20;}
+    if(i%2===0){doc.setFillColor(240,242,245);doc.rect(14,y-4.2,182,6,'F');}
+    doc.text(d.ventaId,16,y);doc.text(d.fecha,34,y);doc.text(d.cliente.substring(0,22),54,y);doc.text(finLabel(d.financiera),100,y);doc.text(fmt(d.monto),130,y,{align:'right'});doc.text('-'+fmt(d.comision),155,y,{align:'right'});doc.text(fmt(d.neto),176,y,{align:'right'});doc.text(d.estadoCobro,194,y,{align:'right'});
+    y+=6;
+  });
+  doc.save(`Comisiones_Financieras_${desde}_a_${hasta}.pdf`);
+  toast('📄 PDF de comisiones descargado');
 }
 
 // ============================================================
@@ -3364,6 +3492,8 @@ async function init(){
   const fi=document.getElementById('filtro-desde');if(fi)fi.value=localDateStr(new Date(new Date().setDate(new Date().getDate()-30)));
   const fh=document.getElementById('filtro-hasta');if(fh)fh.value=t;
   const fc=document.getElementById('cierre-fecha');if(fc)fc.value=t;
+  const comd=document.getElementById('com-desde');if(comd)comd.value=localDateStr(new Date(new Date().setDate(new Date().getDate()-30)));
+  const comh=document.getElementById('com-hasta');if(comh)comh.value=t;
   updateClock();setInterval(updateClock,30000);
   chequearCierresAutomaticos();
   setInterval(chequearCierresAutomaticos,60000);
