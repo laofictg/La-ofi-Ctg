@@ -843,6 +843,15 @@
   </div>
 </div>
 
+<div class="modal-overlay" id="modal-ganancia-venta">
+  <div class="modal" style="width:520px;">
+    <div class="modal-header"><span class="modal-title">💹 Ganancia de la Factura</span><button class="close-btn" onclick="cerrarModal('modal-ganancia-venta')">✕</button></div>
+    <div id="ganancia-venta-info" style="padding:4px 4px 10px;font-size:12.5px;color:var(--text2);"></div>
+    <table><thead><tr><th>Producto</th><th style="text-align:right">Venta</th><th style="text-align:right">Costo</th><th style="text-align:right">Ganancia</th></tr></thead><tbody id="tabla-ganancia-venta"></tbody></table>
+    <div id="ganancia-venta-total" style="text-align:right;padding:12px 4px 4px;font-size:15px;"></div>
+  </div>
+</div>
+
 <div class="modal-overlay" id="modal-confirm-venta">
   <div class="modal" style="width:420px;">
     <div class="modal-header"><span class="modal-title">⚠️ Eliminar Venta</span><button class="close-btn" onclick="cerrarModal('modal-confirm-venta')">✕</button></div>
@@ -2290,8 +2299,34 @@ function renderVentas(){
     <td style="font-size:12px">${v.fecha} <span style="color:var(--text2)">${v.hora}</span></td>
     <td><div class="action-btns">
       <button class="btn btn-outline btn-sm" onclick="verFactura('${v.id}')" title="Ver factura">🧾 Ver</button>
+      ${currentRole==='admin'?`<button class="btn btn-outline btn-sm" onclick="verGananciaVenta('${v.id}')" title="Ver ganancia">💹</button>`:''}
       <button class="btn btn-danger btn-sm" onclick="pedirEliminarVenta('${v.id}')" title="Eliminar">🗑️</button>
     </div></td></tr>`).join('')||'<tr class="empty-row"><td colspan="7">Sin ventas en el período</td></tr>';
+}
+
+function verGananciaVenta(id){
+  if(currentRole!=='admin'){toast('No tienes permiso para ver esta información',true);return;}
+  const v=DB.ventas.find(x=>x.id===id);if(!v)return;
+  let totalVenta=0, totalCosto=0;
+  const filas=v.items.map(i=>{
+    const costoUnit=(i.costo!==undefined&&i.costo!==null)?i.costo:(DB.productos.find(x=>x.id===i.prodId)?.costo||0);
+    const ventaLinea=i.precio*i.qty;
+    const costoLinea=costoUnit*i.qty;
+    const gananciaLinea=ventaLinea-costoLinea;
+    totalVenta+=ventaLinea; totalCosto+=costoLinea;
+    return `<tr>
+      <td>${esc(i.nombre)}${i.qty>1?' <span style="color:var(--text2)">x'+i.qty+'</span>':''}</td>
+      <td style="text-align:right">${fmt(ventaLinea)}</td>
+      <td style="text-align:right;color:var(--text2)">${fmt(costoLinea)}</td>
+      <td style="text-align:right;font-weight:700;color:${gananciaLinea<0?'var(--red)':'var(--green)'}">${fmt(gananciaLinea)}</td>
+    </tr>`;
+  }).join('');
+  const gananciaTotal=totalVenta-totalCosto;
+  const margen=totalVenta>0?Math.round(gananciaTotal/totalVenta*100):0;
+  document.getElementById('ganancia-venta-info').innerHTML=`<strong>${v.id}</strong> · ${esc(v.cliente)} · ${v.fecha} ${v.hora}`;
+  document.getElementById('tabla-ganancia-venta').innerHTML=filas||'<tr class="empty-row"><td colspan="4">Sin productos</td></tr>';
+  document.getElementById('ganancia-venta-total').innerHTML=`Ganancia total: <span style="font-weight:900;color:${gananciaTotal<0?'var(--red)':'var(--green)'}">${fmt(gananciaTotal)}</span> <span style="color:var(--text2);font-weight:400">(${margen}% margen)</span>`;
+  abrirModal('modal-ganancia-venta');
 }
 
 // ============================================================
