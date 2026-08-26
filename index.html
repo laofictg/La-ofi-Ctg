@@ -696,6 +696,19 @@
         </div>
       </div>
       <div id="permisos-container"></div>
+
+      <div class="page-header" style="margin-top:28px;">
+        <div><div class="page-title">💹 Comisiones de Financieras</div><div class="page-sub">% que cada financiera descuenta antes de girarte el dinero — se usa para calcular la ganancia real de cada factura</div></div>
+      </div>
+      <div class="card" style="padding:14px 18px;margin-bottom:18px;background:rgba(214,31,38,.04);border-color:rgba(214,31,38,.2);">
+        <div style="font-size:12.5px;color:var(--text2);line-height:1.6;">
+          ℹ️ El cliente siempre ve el valor completo de su crédito en la factura — esto NO cambia. Este % solo se usa internamente para que "Ganancia Real" (en Registro de Ventas y Cierre del Día) refleje lo que en verdad te queda después de que la financiera cobra su parte. Se guarda automáticamente al cambiar el valor.
+        </div>
+      </div>
+      <div class="card">
+        <table><thead><tr><th>Financiera</th><th style="width:180px;">% Comisión</th></tr></thead>
+        <tbody id="tabla-comisiones-financieras"></tbody></table>
+      </div>
     </div>
 
     <!-- CLIENTES -->
@@ -955,7 +968,7 @@ function puede(key){
   return !!permisos[key];
 }
 
-let DB = { productos:[], ventas:[], movimientos:[], clientes:[], cuentasPorCobrar:[], abonosCxc:[], categorias:[], gastos:[], cierres:[], permisosVendedor:{...PERMISOS_DEFAULT_VENDEDOR}, facturaCounter:1000 };
+let DB = { productos:[], ventas:[], movimientos:[], clientes:[], cuentasPorCobrar:[], abonosCxc:[], categorias:[], gastos:[], cierres:[], permisosVendedor:{...PERMISOS_DEFAULT_VENDEDOR}, facturaCounter:1000, comisionesFinancieras:{} };
 // IDs eliminados en ESTA sesión que aún no se han confirmado como borrados en la nube.
 // Es la única fuente de verdad para qué borrar al sincronizar (ver syncTablaCompleta).
 let DB_ELIMINADOS = { productos:[], ventas:[], ventaItems:[], ventaPagos:[], cuentasPorCobrar:[], gastos:[] };
@@ -1084,6 +1097,7 @@ async function saveState(){
       intentar('gastos', syncTablaCompleta('gastos', DB.gastos.map(g=>({id:g.id, descripcion:g.descripcion, monto:g.monto, fecha:g.fecha, hora:g.hora})), 'id', idsGastosBorrar)),
       intentar('cierres', syncTablaCompleta('cierres', DB.cierres.map(c=>({id:c.id, fecha:c.fecha, cerrado_en:c.cerradoEn||null, tipo:c.tipo, efectivo:c.efectivo||0, transferencia:c.transferencia||0, tarjeta:c.tarjeta||0, credito:c.credito||0, gastos:c.gastos||0, cobros_cartera:c.cobrosCartera||0, neto_caja:c.netoCaja||0, caja_principal:c.cajaPrincipal||0, ventas_count:c.ventasCount||0, total_ventas:c.totalVentas||0, detalle_json:c.detalle||null})), 'id')),
       intentar('permisos_vendedor', savePermisos()),
+      intentar('comisiones_financieras', saveComisionesFinancieras()),
       // NOTA: el contador de facturas (config.factura_counter) NUNCA se escribe aquí.
       // Es una fuente de verdad compartida entre todos los dispositivos y SOLO debe
       // modificarse a través de la función atómica increment_factura_counter() en Postgres.
@@ -1140,7 +1154,7 @@ async function reintentarSyncManual(){
 async function loadState(){
   if(!cloudDisponible){ seedData(); return; }
   try{
-    const [prod, cli, cat, vts, vit, vpg, mov, cxc, abo, gas, cie, perm, cfg] = await Promise.all([
+    const [prod, cli, cat, vts, vit, vpg, mov, cxc, abo, gas, cie, perm, cfg, comf] = await Promise.all([
       supabaseClient.from('productos').select('*'),
       supabaseClient.from('clientes').select('*'),
       supabaseClient.from('categorias').select('nombre').order('id'),
@@ -1154,8 +1168,9 @@ async function loadState(){
       supabaseClient.from('cierres').select('*'),
       supabaseClient.from('permisos_vendedor').select('*'),
       supabaseClient.from('config').select('*').eq('id',1).single(),
+      supabaseClient.from('comisiones_financieras').select('*'),
     ]);
-    [prod,cli,cat,vts,vit,vpg,mov,cxc,abo,gas,cie,perm,cfg].forEach(r=>{ if(r.error) throw r.error; });
+    [prod,cli,cat,vts,vit,vpg,mov,cxc,abo,gas,cie,perm,cfg,comf].forEach(r=>{ if(r.error) throw r.error; });
 
     if(prod.data && prod.data.length){
       DB.productos = prod.data.map(p=>({ id:p.id, codigo:p.codigo, nombre:p.nombre, cat:p.categoria, precio:Number(p.precio), costo:Number(p.costo), stock:p.stock, min:p.stock_minimo, desc:p.descripcion }));
@@ -1181,6 +1196,11 @@ async function loadState(){
       (perm.data||[]).forEach(p=>{ permisosObj[p.clave] = p.activo; });
       DB.permisosVendedor = {...PERMISOS_DEFAULT_VENDEDOR, ...permisosObj};
       DB.facturaCounter = (cfg.data && cfg.data.factura_counter) || DB.facturaCounter;
+
+      const comisionesObj = {};
+      FINANCIERAS.forEach(f=>{ comisionesObj[f] = 0; });
+      (comf.data||[]).forEach(c=>{ comisionesObj[c.financiera] = Number(c.comision)||0; });
+      DB.comisionesFinancieras = comisionesObj;
     } else {
       seedData();
       await saveState();
@@ -1208,6 +1228,7 @@ function seedData() {
   DB.gastos = [];
   DB.cierres = [];
   DB.permisosVendedor = {...PERMISOS_DEFAULT_VENDEDOR};
+  DB.comisionesFinancieras = Object.fromEntries(FINANCIERAS.map(f=>[f,0]));
 }
 
 // ============================================================
@@ -1304,6 +1325,18 @@ function pagosDeVenta(v){
 // Monto de una venta que entra directo a Caja Principal (excluye lo que va a Crédito/Cuentas por Cobrar, sea de financiera o directo)
 function montoCajaDeVenta(v){
   return pagosDeVenta(v).filter(p=>p.metodo!=='Crédito / Cuotas'&&p.metodo!=='Crédito Directo').reduce((s,p)=>s+p.monto,0);
+}
+// Comisión que descuenta la financiera sobre la porción de una venta pagada a Crédito/Cuotas.
+// El cliente sigue viendo el valor completo en su factura — esto es SOLO para calcular la
+// ganancia real interna del negocio, ya que la financiera se queda con un % antes de girar
+// (o lo cobra aparte, según el caso — de cualquier forma reduce lo que en verdad gana el negocio).
+// Crédito Directo (con el cliente, sin financiera de por medio) NUNCA tiene comisión.
+function comisionDeVenta(v){
+  if(!DB.comisionesFinancieras)return 0;
+  return pagosDeVenta(v).filter(p=>p.metodo==='Crédito / Cuotas'&&p.financiera).reduce((s,p)=>{
+    const pct=Number(DB.comisionesFinancieras[p.financiera])||0;
+    return s+p.monto*(pct/100);
+  },0);
 }
 // Monto de una venta que se fue a Crédito (Cuentas por Cobrar), sea de financiera o directo
 function montoCreditoDeVenta(v){
@@ -2284,12 +2317,14 @@ function renderVentas(){
   const f=DB.ventas.filter(v=>(!desde||v.fecha>=desde)&&(!hasta||v.fecha<=hasta)&&(!pago||ventaTieneMetodo(v,pago)));
   const tot=f.reduce((s,v)=>s+v.total,0);
   const tp=f.length?tot/f.length:0;
-  const gan=f.reduce((s,v)=>s+v.items.reduce((ss,i)=>{const costo=(i.costo!==undefined&&i.costo!==null)?i.costo:(DB.productos.find(x=>x.id===i.prodId)?.costo||0);return ss+(i.precio-costo)*i.qty;},0),0);
+  const ganBruta=f.reduce((s,v)=>s+v.items.reduce((ss,i)=>{const costo=(i.costo!==undefined&&i.costo!==null)?i.costo:(DB.productos.find(x=>x.id===i.prodId)?.costo||0);return ss+(i.precio-costo)*i.qty;},0),0);
+  const comisiones=f.reduce((s,v)=>s+comisionDeVenta(v),0);
+  const gan=ganBruta-comisiones;
   document.getElementById('kpi-ventas').innerHTML=`
     <div class="kpi-card kpi-green"><div class="kpi-label">Total Ingresos</div><div class="kpi-val">${fmt(tot)}</div><div class="kpi-sub">en el período</div></div>
     <div class="kpi-card kpi-blue"><div class="kpi-label"># Ventas</div><div class="kpi-val">${f.length}</div><div class="kpi-sub">transacciones</div></div>
     <div class="kpi-card kpi-yellow"><div class="kpi-label">Ticket Promedio</div><div class="kpi-val">${fmt(tp)}</div><div class="kpi-sub">por venta</div></div>
-    <div class="kpi-card kpi-red"><div class="kpi-label">Ganancia Bruta</div><div class="kpi-val">${fmt(gan)}</div><div class="kpi-sub">margen estimado</div></div>`;
+    <div class="kpi-card kpi-red"><div class="kpi-label">Ganancia Real</div><div class="kpi-val">${fmt(gan)}</div><div class="kpi-sub">${comisiones>0?'ya descontadas comisiones de financieras ('+fmt(comisiones)+')':'margen estimado'}</div></div>`;
   document.getElementById('tabla-ventas').innerHTML=[...f].reverse().map(v=>`<tr>
     <td><span class="badge badge-sky">${v.id}</span></td>
     <td style="font-weight:600">${esc(v.cliente)}</td>
@@ -2321,11 +2356,28 @@ function verGananciaVenta(id){
       <td style="text-align:right;font-weight:700;color:${gananciaLinea<0?'var(--red)':'var(--green)'}">${fmt(gananciaLinea)}</td>
     </tr>`;
   }).join('');
-  const gananciaTotal=totalVenta-totalCosto;
+  // Filas extra de comisión: una por cada pago a Crédito/Cuotas con financiera y % configurado.
+  // El cliente sigue viendo el valor completo en su factura — esto es solo el descuento
+  // interno de lo que la financiera se queda antes de que el negocio reciba la plata.
+  const pagosFinanciados=pagosDeVenta(v).filter(p=>p.metodo==='Crédito / Cuotas'&&p.financiera);
+  let totalComision=0;
+  const filasComision=pagosFinanciados.map(p=>{
+    const pct=Number(DB.comisionesFinancieras?.[p.financiera])||0;
+    const comisionLinea=p.monto*(pct/100);
+    totalComision+=comisionLinea;
+    return `<tr>
+      <td style="color:var(--text2)">🏦 Comisión ${esc(p.financiera)} (${pct}%)</td>
+      <td style="text-align:right;color:var(--text2)">—</td>
+      <td style="text-align:right;color:var(--text2)">—</td>
+      <td style="text-align:right;font-weight:700;color:var(--red)">-${fmt(comisionLinea)}</td>
+    </tr>`;
+  }).join('');
+  const gananciaBruta=totalVenta-totalCosto;
+  const gananciaTotal=gananciaBruta-totalComision;
   const margen=totalVenta>0?Math.round(gananciaTotal/totalVenta*100):0;
-  document.getElementById('ganancia-venta-info').innerHTML=`<strong>${v.id}</strong> · ${esc(v.cliente)} · ${v.fecha} ${v.hora}`;
-  document.getElementById('tabla-ganancia-venta').innerHTML=filas||'<tr class="empty-row"><td colspan="4">Sin productos</td></tr>';
-  document.getElementById('ganancia-venta-total').innerHTML=`Ganancia total: <span style="font-weight:900;color:${gananciaTotal<0?'var(--red)':'var(--green)'}">${fmt(gananciaTotal)}</span> <span style="color:var(--text2);font-weight:400">(${margen}% margen)</span>`;
+  document.getElementById('ganancia-venta-info').innerHTML=`<strong>${v.id}</strong> · ${esc(v.cliente)} · ${v.fecha} ${v.hora}${totalComision>0?'<br><span style="color:var(--red)">⚠️ Esta venta se financió con una financiera que cobra comisión — la ganancia ya viene descontada.</span>':''}`;
+  document.getElementById('tabla-ganancia-venta').innerHTML=(filas+filasComision)||'<tr class="empty-row"><td colspan="4">Sin productos</td></tr>';
+  document.getElementById('ganancia-venta-total').innerHTML=`Ganancia real: <span style="font-weight:900;color:${gananciaTotal<0?'var(--red)':'var(--green)'}">${fmt(gananciaTotal)}</span> <span style="color:var(--text2);font-weight:400">(${margen}% margen)</span>`;
   abrirModal('modal-ganancia-venta');
 }
 
@@ -2527,7 +2579,7 @@ function calcularDatosCierre(fecha){
   // netoCajaHoy: efectivoHoy ya incluye tanto ventas en efectivo como abonos en efectivo de hoy — no se suma dos veces.
   const netoCajaHoy=efectivoHoy-gastosHoy;
   const totalGeneralHoy=efectivoHoy+transferenciaHoy+tarjetaHoy-gastosHoy;
-  const gananciaHoy=hoy.reduce((s,v)=>s+v.items.reduce((ss,i)=>{const costo=(i.costo!==undefined&&i.costo!==null)?i.costo:(DB.productos.find(x=>x.id===i.prodId)?.costo||0);return ss+(i.precio-costo)*i.qty;},0),0);
+  const gananciaHoy=hoy.reduce((s,v)=>s+v.items.reduce((ss,i)=>{const costo=(i.costo!==undefined&&i.costo!==null)?i.costo:(DB.productos.find(x=>x.id===i.prodId)?.costo||0);return ss+(i.precio-costo)*i.qty;},0)-comisionDeVenta(v),0);
   const cajaPrincipal=cajaPrincipalActual(fecha);
   return {fecha,hoy,total,porMetodo,porMetodoVentas,porMetodoAbonos,ventasEfectivoHoy,abonosEfectivoHoy,efectivoHoy,transferenciaDetalle,transferenciaHoy,tarjetaHoy,creditoHoy,creditoDirectoHoy,gastosDelDia,gastosHoy,abonosHoy,cobrosCarteraHoy,abonosDirectoHoy,abonosFinancieraHoy,cxcGeneradasHoy,netoCajaHoy,totalGeneralHoy,gananciaHoy,cajaPrincipal};
 }
@@ -2744,7 +2796,7 @@ function generarPDFCierre(d){
   y+=22;
 
   doc.setFontSize(8.5);doc.setFont('helvetica','normal');doc.setTextColor(150,140,130);
-  doc.text(`Total vendido en el día: ${fmt(d.total)}  (${d.hoy.length} facturas)  ·  Ganancia bruta estimada: ${fmt(d.gananciaHoy)}`,20,y);
+  doc.text(`Total vendido en el día: ${fmt(d.total)}  (${d.hoy.length} facturas)  ·  Ganancia real estimada: ${fmt(d.gananciaHoy)}`,20,y);
 
   doc.save(`Cierre_LaOfiCtg_${d.fecha}.pdf`);
 }
@@ -3060,6 +3112,20 @@ function renderPermisos(){
       }).join('')}
     </div>
   `).join('');
+  renderComisionesFinancieras();
+}
+function renderComisionesFinancieras(){
+  if(currentRole!=='admin')return;
+  const tbody=document.getElementById('tabla-comisiones-financieras');
+  if(!tbody)return;
+  if(!DB.comisionesFinancieras) DB.comisionesFinancieras = Object.fromEntries(FINANCIERAS.map(f=>[f,0]));
+  tbody.innerHTML=FINANCIERAS.map(f=>{
+    const pct=Number(DB.comisionesFinancieras[f])||0;
+    return `<tr>
+      <td style="font-weight:600">🏦 ${esc(f)}</td>
+      <td><input type="number" min="0" max="100" step="0.1" value="${pct}" style="width:100px;padding:6px 8px;border:1px solid var(--border);border-radius:6px;" onchange="actualizarComisionFinanciera('${f}', this.value)"> %</td>
+    </tr>`;
+  }).join('');
 }
 // Guardado DEDICADO de permisos (no depende del resto de saveState()).
 // Los permisos son una función de seguridad/acceso — no deben quedar sin
@@ -3072,6 +3138,29 @@ async function savePermisos(){
     console.error('Error guardando permisos:', e);
     toast('⚠️ No se pudieron guardar los permisos en la nube',true);
   }
+}
+// Guardado DEDICADO de comisiones de financieras — igual que permisos, no debe
+// quedar sin guardarse solo porque otra tabla (ventas, productos, etc.) falló.
+async function saveComisionesFinancieras(){
+  if(!cloudDisponible) return;
+  try{
+    if(!DB.comisionesFinancieras) DB.comisionesFinancieras = Object.fromEntries(FINANCIERAS.map(f=>[f,0]));
+    await syncTablaCompleta('comisiones_financieras', FINANCIERAS.map(f=>({financiera:f, comision:Number(DB.comisionesFinancieras[f])||0})), 'financiera');
+  } catch(e){
+    console.error('Error guardando comisiones de financieras:', e);
+    toast('⚠️ No se pudieron guardar las comisiones en la nube',true);
+  }
+}
+function actualizarComisionFinanciera(financiera, valor){
+  if(currentRole!=='admin')return;
+  if(!DB.comisionesFinancieras) DB.comisionesFinancieras = Object.fromEntries(FINANCIERAS.map(f=>[f,0]));
+  let pct = parseFloat(valor);
+  if(isNaN(pct)||pct<0) pct=0;
+  if(pct>100) pct=100;
+  DB.comisionesFinancieras[financiera] = pct;
+  saveComisionesFinancieras();
+  renderComisionesFinancieras();
+  toast(`✅ Comisión de ${financiera} actualizada a ${pct}%`);
 }
 function togglePermiso(key, activo){
   if(currentRole!=='admin')return;
