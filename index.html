@@ -2232,7 +2232,23 @@ async function enviarFacturaWhatsApp(){
   const nombreArchivo=`Factura_${v.id}_LaOfiCtg.pdf`;
   const mensaje=`Hola ${v.cliente!=='Consumidor Final'?v.cliente:''}, te comparto tu factura ${v.id} de La Ofi Ctg por ${fmt(v.total)}. ¡Gracias por tu compra! 📱`.replace('  ',' ');
   const telWA=normalizarTelWA(v.telefono);
-  // 1) Intentar compartir el PDF directamente a WhatsApp (móviles con Web Share API)
+  // Se prioriza abrir DIRECTO el chat del cliente por su teléfono (si lo tenemos registrado en
+  // la venta) — WhatsApp no permite adjuntar un archivo automáticamente por este método, así
+  // que se descarga el PDF a la vez para que quede a mano y solo haga falta arrastrarlo al chat
+  // que se abre. Se prefiere esto sobre el selector nativo de contactos, que no sabe a quién
+  // pertenece la venta y obliga a buscar al cliente a mano entre todos los contactos
+  // (cambio pedido por Christian el 2026-08-26, tras confirmar que abría el selector genérico
+  // de Windows en vez de ir directo al cliente).
+  if(telWA){
+    doc.save(nombreArchivo);
+    const url=`https://wa.me/${telWA}?text=${encodeURIComponent(mensaje)}`;
+    window.open(url,'_blank');
+    toast('📥 PDF descargado — adjúntalo en el chat de WhatsApp del cliente que se abrió');
+    return;
+  }
+  // Sin teléfono registrado (ej. "Consumidor Final"): no hay a quién dirigir el chat directo,
+  // así que se ofrece compartir el PDF por el selector nativo del sistema (funciona en
+  // celulares y en Windows/Mac con WhatsApp Desktop instalado).
   try{
     const blob=doc.output('blob');
     const file=new File([blob],nombreArchivo,{type:'application/pdf'});
@@ -2242,9 +2258,9 @@ async function enviarFacturaWhatsApp(){
       return;
     }
   }catch(e){ if(e.name==='AbortError')return; }
-  // 2) Alternativa: descargar el PDF y abrir WhatsApp con el mensaje listo
+  // Último respaldo: descargar el PDF y abrir WhatsApp (sin contacto específico) con el mensaje listo.
   doc.save(nombreArchivo);
-  const url=telWA?`https://wa.me/${telWA}?text=${encodeURIComponent(mensaje)}`:`https://wa.me/?text=${encodeURIComponent(mensaje)}`;
+  const url=`https://wa.me/?text=${encodeURIComponent(mensaje)}`;
   window.open(url,'_blank');
   toast('📥 PDF descargado — adjúntalo en el chat de WhatsApp que se abrió');
 }
