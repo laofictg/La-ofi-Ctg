@@ -2612,8 +2612,18 @@ function calcularDatosCierre(fecha){
   const netoCajaHoy=efectivoHoy-gastosHoy;
   const totalGeneralHoy=efectivoHoy+transferenciaHoy+tarjetaHoy-gastosHoy;
   const gananciaHoy=hoy.reduce((s,v)=>s+v.items.reduce((ss,i)=>{const costo=(i.costo!==undefined&&i.costo!==null)?i.costo:(DB.productos.find(x=>x.id===i.prodId)?.costo||0);return ss+(i.precio-costo)*i.qty;},0)-comisionDeVenta(v),0);
+  // Desglose de comisiones de financieras del día — mismo criterio que el reporte de Comisiones
+  // (% vigente, no congelado). Solo cuenta ventas nuevas de HOY pagadas por financiera.
+  const comisionesFinancierasHoy=hoy.filter(v=>pagosDeVenta(v).some(p=>p.metodo==='Crédito / Cuotas'&&p.financiera))
+    .reduce((s,v)=>s+comisionDeVenta(v),0);
+  const comisionesFinancierasHoyPorFin={};
+  hoy.forEach(v=>pagosDeVenta(v).filter(p=>p.metodo==='Crédito / Cuotas'&&p.financiera).forEach(p=>{
+    const pct=Number(DB.comisionesFinancieras?.[p.financiera])||0;
+    const com=Math.round(p.monto*(pct/100)*100)/100;
+    comisionesFinancierasHoyPorFin[p.financiera]=(comisionesFinancierasHoyPorFin[p.financiera]||0)+com;
+  }));
   const cajaPrincipal=cajaPrincipalActual(fecha);
-  return {fecha,hoy,total,porMetodo,porMetodoVentas,porMetodoAbonos,ventasEfectivoHoy,abonosEfectivoHoy,efectivoHoy,transferenciaDetalle,transferenciaHoy,tarjetaHoy,creditoHoy,creditoDirectoHoy,gastosDelDia,gastosHoy,abonosHoy,cobrosCarteraHoy,abonosDirectoHoy,abonosFinancieraHoy,cxcGeneradasHoy,netoCajaHoy,totalGeneralHoy,gananciaHoy,cajaPrincipal};
+  return {fecha,hoy,total,porMetodo,porMetodoVentas,porMetodoAbonos,ventasEfectivoHoy,abonosEfectivoHoy,efectivoHoy,transferenciaDetalle,transferenciaHoy,tarjetaHoy,creditoHoy,creditoDirectoHoy,gastosDelDia,gastosHoy,abonosHoy,cobrosCarteraHoy,abonosDirectoHoy,abonosFinancieraHoy,cxcGeneradasHoy,netoCajaHoy,totalGeneralHoy,gananciaHoy,comisionesFinancierasHoy,comisionesFinancierasHoyPorFin,cajaPrincipal};
 }
 function renderCierre(){
   const fecha=document.getElementById('cierre-fecha').value||today();
@@ -2666,6 +2676,11 @@ function renderCierre(){
       <div class="resumen-linea"><span>A Financieras (Crédito / Cuotas)</span><span class="mono">${fmt(d.creditoHoy)}</span></div>
       <div class="resumen-linea"><span>Crédito Directo (fiado propio)</span><span class="mono">${fmt(d.creditoDirectoHoy)}</span></div>
     </div>
+    ${d.comisionesFinancierasHoy>0?`<div class="resumen-seccion">
+      <div class="resumen-seccion-label">💹 Comisión de Financieras Hoy <span style="font-weight:400;font-size:11px;">(lo que se descuenta del crédito otorgado hoy — no es plata que sale de caja)</span></div>
+      ${Object.entries(d.comisionesFinancierasHoyPorFin).map(([fin,com])=>`<div class="resumen-linea neg"><span>${esc(finLabel(fin))}</span><span class="mono">-${fmt(com)}</span></div>`).join('')}
+      <div class="resumen-linea neg" style="font-weight:800;"><span>Total Comisiones Hoy</span><span class="mono">-${fmt(d.comisionesFinancierasHoy)}</span></div>
+    </div>`:''}
     <div class="resumen-seccion">
       <div class="resumen-seccion-label">📥 Abonos de Cartera Cobrados Hoy <span style="font-weight:400;font-size:11px;">(ya incluidos arriba por método)</span></div>
       <div class="resumen-linea"><span>De Financieras</span><span class="mono">${fmt(d.abonosFinancieraHoy)}</span></div>
@@ -2829,6 +2844,11 @@ function generarPDFCierre(d){
 
   doc.setFontSize(8.5);doc.setFont('helvetica','normal');doc.setTextColor(150,140,130);
   doc.text(`Total vendido en el día: ${fmt(d.total)}  (${d.hoy.length} facturas)  ·  Ganancia real estimada: ${fmt(d.gananciaHoy)}`,20,y);
+  if(d.comisionesFinancierasHoy>0){
+    y+=5;
+    const detalleComs=Object.entries(d.comisionesFinancierasHoyPorFin).map(([fin,com])=>`${finLabel(fin)} -${fmt(com)}`).join('  ·  ');
+    doc.text(`Comisión de financieras hoy: -${fmt(d.comisionesFinancierasHoy)}  (${detalleComs})`,20,y);
+  }
 
   doc.save(`Cierre_LaOfiCtg_${d.fecha}.pdf`);
 }
