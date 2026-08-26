@@ -2241,7 +2241,7 @@ async function enviarFacturaWhatsApp(){
   // de Windows en vez de ir directo al cliente).
   if(telWA){
     doc.save(nombreArchivo);
-    const url=`https://wa.me/${telWA}?text=${encodeURIComponent(mensaje)}`;
+    const url=`https://api.whatsapp.com/send?phone=${telWA}&text=${encodeURIComponent(mensaje)}`;
     window.open(url,'_blank');
     toast('📥 PDF descargado — adjúntalo en el chat de WhatsApp del cliente que se abrió');
     return;
