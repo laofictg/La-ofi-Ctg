@@ -2330,6 +2330,16 @@ async function enviarFacturaWhatsApp(){
 // ============================================================
 // VENTAS (con botón eliminar)
 // ============================================================
+// Ganancia bruta de una venta (venta - costo por producto), SIN comisión de financiera.
+// Los ítems a $0 se tratan como obsequio/promoción (ej. un accesorio de regalo con la compra)
+// y NO participan en el cálculo — su costo es un gasto de marketing, no una pérdida de la venta.
+function gananciaBrutaVenta(v){
+  return v.items.reduce((s,i)=>{
+    if(!i.precio) return s;
+    const costo=(i.costo!==undefined&&i.costo!==null)?i.costo:(DB.productos.find(x=>x.id===i.prodId)?.costo||0);
+    return s+(i.precio-costo)*i.qty;
+  },0);
+}
 function renderVentas(){
   const desde=document.getElementById('filtro-desde')?.value||'';
   const hasta=document.getElementById('filtro-hasta')?.value||'';
@@ -2337,7 +2347,7 @@ function renderVentas(){
   const f=DB.ventas.filter(v=>(!desde||v.fecha>=desde)&&(!hasta||v.fecha<=hasta)&&(!pago||ventaTieneMetodo(v,pago)));
   const tot=f.reduce((s,v)=>s+v.total,0);
   const tp=f.length?tot/f.length:0;
-  const ganBruta=f.reduce((s,v)=>s+v.items.reduce((ss,i)=>{const costo=(i.costo!==undefined&&i.costo!==null)?i.costo:(DB.productos.find(x=>x.id===i.prodId)?.costo||0);return ss+(i.precio-costo)*i.qty;},0),0);
+  const ganBruta=f.reduce((s,v)=>s+gananciaBrutaVenta(v),0);
   const comisiones=f.reduce((s,v)=>s+comisionDeVenta(v),0);
   const gan=ganBruta-comisiones;
   document.getElementById('kpi-ventas').innerHTML=`
@@ -2367,6 +2377,17 @@ function verGananciaVenta(id){
     const costoUnit=(i.costo!==undefined&&i.costo!==null)?i.costo:(DB.productos.find(x=>x.id===i.prodId)?.costo||0);
     const ventaLinea=i.precio*i.qty;
     const costoLinea=costoUnit*i.qty;
+    const esObsequio=!i.precio;
+    if(esObsequio){
+      // Regalo/promoción (precio $0): no participa en la ganancia — es un gasto de marketing,
+      // no una pérdida de esta venta. Se muestra en la tabla pero no se suma al total.
+      return `<tr>
+        <td>🎁 ${esc(i.nombre)}${i.qty>1?' <span style="color:var(--text2)">x'+i.qty+'</span>':''} <span style="color:var(--text2);font-size:11px;">(obsequio)</span></td>
+        <td style="text-align:right">$0</td>
+        <td style="text-align:right;color:var(--text2)">${fmt(costoLinea)}</td>
+        <td style="text-align:right;color:var(--text2)">no cuenta</td>
+      </tr>`;
+    }
     const gananciaLinea=ventaLinea-costoLinea;
     totalVenta+=ventaLinea; totalCosto+=costoLinea;
     return `<tr>
@@ -2611,7 +2632,7 @@ function calcularDatosCierre(fecha){
   // netoCajaHoy: efectivoHoy ya incluye tanto ventas en efectivo como abonos en efectivo de hoy — no se suma dos veces.
   const netoCajaHoy=efectivoHoy-gastosHoy;
   const totalGeneralHoy=efectivoHoy+transferenciaHoy+tarjetaHoy-gastosHoy;
-  const gananciaHoy=hoy.reduce((s,v)=>s+v.items.reduce((ss,i)=>{const costo=(i.costo!==undefined&&i.costo!==null)?i.costo:(DB.productos.find(x=>x.id===i.prodId)?.costo||0);return ss+(i.precio-costo)*i.qty;},0)-comisionDeVenta(v),0);
+  const gananciaHoy=hoy.reduce((s,v)=>s+gananciaBrutaVenta(v)-comisionDeVenta(v),0);
   // Desglose de comisiones de financieras del día — mismo criterio que el reporte de Comisiones
   // (% vigente, no congelado). Solo cuenta ventas nuevas de HOY pagadas por financiera.
   const comisionesFinancierasHoy=hoy.filter(v=>pagosDeVenta(v).some(p=>p.metodo==='Crédito / Cuotas'&&p.financiera))
